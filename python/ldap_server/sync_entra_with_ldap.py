@@ -10,11 +10,11 @@ client_secret = 'XXXXX~XXX'
 
 # LDAP Configuration -- DC does not need to be the same with EntraID domain
 ldap_server = 'ldap://localhost:389'
-ldap_user_dn = 'cn=ldapadmin,dc=thecanopener,dc=com'
+ldap_user_dn = 'cn=ldapadmin,dc=mydomain,dc=local'
 ldap_password = 'XXXXXXXX'
 
-userBaseDn = 'ou=users,dc=thecanopener,dc=com'
-groupBaseDn = 'ou=groups,dc=thecanopener,dc=com'
+userBaseDn = 'ou=users,dc=mydomain,dc=local'
+groupBaseDn = 'ou=groups,dc=mydomain,dc=local'
 
 async def initClient():
     # Set up the credentials and Graph client

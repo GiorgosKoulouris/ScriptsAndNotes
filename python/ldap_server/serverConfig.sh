@@ -1,11 +1,18 @@
+# 
+# Description
+#   These are the core steps to configure an LDAP server on a Linux VM
+#   Packages and config file location may vary based on the flavor used
+
+# Install packaged -- RHEL Based
 yum install openldap openldap-servers openldap-clients
 
-# fix URI and BASE
+# Modify URI and BASE options
 vi /etc/openldap/ldap.conf
 
-slappwd # to retrieve hashed pw
+# Retrieve a hashed pw for your root user
+slappwd
 
-# Root PW + config (REPLACE olcRootPW value with the hashed pw)
+# Root password modification -- Modify olcRootPW value with the hashed password from the previous step
 cat << EOF > rootpw.ldif
 dn: olcDatabase={0}config,cn=config
 changetype: modify
@@ -14,28 +21,31 @@ olcRootPW: {SSHA}XXXXXXX
 EOF
 
 ldapadd -Y EXTERNAL -H ldapi:/// -f rootpw.ldif
+rm -f rootpw.ldif
 
-# Paths may be different
+# Apply core configs -- Paths may be different
 ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/cosine.ldif
 ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/nis.ldif
 ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/inetorgperson.ldif
 ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/openldap.ldif
 ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/dyngroup.ldif
 
-# ldapadmin user config (local operations and FW bind user)
+# Retrieve a hashed pw for your admin user
 slappwd # to retrieve hashed pw
 
-# suffix + ldapadmin entity (REPLACE olcRootPW value with the hashed pw)
+# Create the suffix and the admin user for the automated operations
+#   Modify olcRootPW value with the hashed pw
+#   Modify olcSuffix and olcRootDN accordingly
 cat << EOF > ldapadmin.ldif
 dn: olcDatabase={2}mdb,cn=config
 changetype: modify
 replace: olcSuffix
-olcSuffix: dc=thecanopener,dc=com
+olcSuffix: dc=mydomain,dc=local
 
 dn: olcDatabase={2}mdb,cn=config
 changetype: modify
 replace: olcRootDN
-olcRootDN: cn=ldapadmin,dc=thecanopener,dc=com
+olcRootDN: cn=ldapadmin,dc=mydomain,dc=local
 
 dn: olcDatabase={2}mdb,cn=config
 changetype: modify
@@ -44,43 +54,38 @@ olcRootPW: {SSHA}XXXXXXX
 EOF
 
 ldapmodify -Y EXTERNAL -H ldapi:/// -f ldapadmin.ldif
+rm -f ldapadmin.ldif
 
-# ORG and necessary OUs
+# Create the Org and necessary OUs
+#   Modify any DN accordingly
 cat << EOF > org.ldif
-dn: dc=thecanopener,dc=com
+dn: dc=mydomain,dc=local
 objectClass: top
 objectClass: dcObject
 objectclass: organization
 o: The Can Opener
 
-dn: cn=ldapadmin,dc=thecanopener,dc=com
+dn: cn=ldapadmin,dc=mydomain,dc=local
 objectClass: organizationalRole
 cn: ldapadmin
 description: LDAP Admin
 
-dn: ou=users,dc=thecanopener,dc=com
+dn: ou=users,dc=mydomain,dc=local
 objectClass: organizationalUnit
 ou: users
 
-dn: ou=groups,dc=thecanopener,dc=com
+dn: ou=groups,dc=mydomain,dc=local
 objectClass: organizationalUnit
 ou: groups
 EOF
 
-ldapadd -x -D cn=ldapadmin,dc=thecanopener,dc=com -W -f org.ldif
+ldapadd -x -D cn=ldapadmin,dc=mydomain,dc=local -W -f org.ldif
+rm -f org.ldif
 
-ldapdelete -x -D "cn=ldapadmin,dc=thecanopener,dc=com" -W -r dc=thecanopener,dc=com
 
-ldapsearch -Y EXTERNAL -H ldapi:/// -b 'ou=users,dc=thecanopener,dc=com' uid=*
-ldapsearch -Y EXTERNAL -H ldapi:/// -b 'ou=groups,dc=thecanopener,dc=com' objectclass=groupOfNames
+# ------- AdHoc localmands for troubleshooting ---------
+# Search in the users OU all UIDs
+ldapsearch -Y EXTERNAL -H ldapi:/// -b 'ou=users,dc=mydomain,dc=local' uid=*
+# Search in the groups OU all groupOfNames
+ldapsearch -Y EXTERNAL -H ldapi:/// -b 'ou=groups,dc=mydomain,dc=local' objectclass=groupOfNames
 
-# Add dummy user
-cat << EOF > user.ldif
-dn: cn=dummyGroup,ou=groups,dc=thecanopener,dc=com
-objectClass: groupOfNames
-objectClass: top
-cn: dummyGroup
-member: uid=dummyUser,ou=users,dc=thecanopener
-EOF
-
-ldapadd -x -D cn=ldapadmin,dc=thecanopener,dc=com -W -f user.ldif
