@@ -1,0 +1,3 @@
+python-msgraph
+azure-identity
+ldap3
