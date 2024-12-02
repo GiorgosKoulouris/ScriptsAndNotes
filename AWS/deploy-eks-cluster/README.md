@@ -17,8 +17,8 @@ Because the script creates objects in the EC2, VPC, EKS and IAM realms, your use
 Clone the repository, navigate to the folder containing the script and execute the following to get an overview of the possilble options:
 
 ```bash
-git clone https://github.com/GiorgosKoulouris/MDs-and-pages.git
-cd MDs-and-pages/aws/deploy-eks-cluster
+git clone https://github.com/GiorgosKoulouris/ScriptsAndNotes.git
+cd ScriptsAndNotes/AWS/deploy-eks-cluster
 ./00_clusterActions.sh --help
 ```
 
