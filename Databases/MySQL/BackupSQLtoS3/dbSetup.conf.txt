@@ -1,0 +1,10 @@
+[mysqld]
+datadir=/sql/data
+socket=/var/lib/mysql/mysql.sock
+log-error=/var/log/mariadb/mariadb.log
+pid-file=/run/mariadb/mariadb.pid
+log_bin = /sql/logs/mysql-bin.log
+expire_logs_days = 10
+max_binlog_size = 40M
+binlog_format = mixed
+sync_binlog = 1
