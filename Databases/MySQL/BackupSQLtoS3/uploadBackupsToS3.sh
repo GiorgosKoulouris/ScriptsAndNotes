@@ -5,6 +5,7 @@ cd $scriptDir
 
 varFile="$scriptDir/variables.txt"
 PYTHON_ENV="$(cat $varFile | grep -E "^PYTHON_ENV" | awk -F'=' '{print $2}')"
+SCRIPT_LOG_DIR="$(cat $varFile | grep -E "^SCRIPT_LOG_DIR" | awk -F'=' '{print $2}')"
 
 dateToday="$(date +'%Y%m%d')"
 logFile="$SCRIPT_LOG_DIR/${dateToday}_uploadBackups.log"
