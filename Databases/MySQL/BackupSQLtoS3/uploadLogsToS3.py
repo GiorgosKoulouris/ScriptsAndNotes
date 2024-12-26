@@ -1,5 +1,3 @@
-#!/root/dbBackups/venv/bin/python
-
 import boto3
 import os
 from pathlib import Path
@@ -15,7 +13,7 @@ def getVarValue(varKey):
             if line.startswith(varKey + '='):
                 varValue = line.strip().split('=')[1]
                 break
-    
+
     if not varValue:
         raise ValueError( varKey + " not found in " + varFile)
     else:
@@ -29,8 +27,8 @@ def setup_logging(log_dir):
 
     # Log file path
     current_date = datetime.now().strftime("%Y%m%d")
-    log_file = os.path.join(log_dir, f"{current_date}_uploadLogs.log")
-    
+    log_file = os.path.join(log_dir, f"{current_date}_dbBackups.log")
+
     # Create a logger
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -42,14 +40,14 @@ def setup_logging(log_dir):
         file_handler.setLevel(logging.DEBUG)
     else:
         file_handler.setLevel(logging.INFO)
-        
+
     # Create a console handler to log to console
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)  # Log INFO level to console
 
     # Define log format
     log_format = '%(asctime)s - %(message)s'
-    formatter = logging.Formatter(log_format, datefmt='%Y-%m-%d %H:%M:%S')
+    formatter = logging.Formatter(log_format, datefmt='%Y-%m-%d %H:%M:%S %z')
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
 
@@ -66,7 +64,7 @@ def upload_files_to_s3(local_directory, bucket_name, s3_prefix=""):
 
     # Loop over all files in the directory using pathlib.rglob() for recursive traversal
     for file_path in local_directory.rglob('*'):
-        if file_path.is_file():  # Process files only        
+        if file_path.is_file():  # Process files only
             # Create the full S3 path, including the optional prefix
             relative_path = file_path.relative_to(local_directory)
             s3_key = str(Path(s3_prefix) / relative_path).replace(os.sep, "/")
@@ -77,7 +75,7 @@ def upload_files_to_s3(local_directory, bucket_name, s3_prefix=""):
                     response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
                     s3_last_modified = response['LastModified'].timestamp()  # Convert to Unix timestamp
                 except ClientError as e:
-                    if e.response['Error']['Message'] == 'Forbidden':
+                    if e.response['Error']['Message'] == 'Forbidden' or e.response['Error']['Code'] == '404':
                         # The file doesn't exist on S3, so we need to upload it
                         s3_last_modified = None
                     else:
@@ -104,11 +102,12 @@ def upload_files_to_s3(local_directory, bucket_name, s3_prefix=""):
 
 if __name__ == "__main__":
     varFile = "variables.txt"
-    
+
     logDir = getVarValue('SCRIPT_LOG_DIR')
     setup_logging(logDir)
-    
+
     backupDirectory = getVarValue('DB_LOG_DIR')
     bucketName = getVarValue('BUCKET_NAME')
     s3Prefix = getVarValue('BUCKET_PREFIX_DB_LOGS')
     upload_files_to_s3(backupDirectory, bucketName, s3Prefix)
+

@@ -1,0 +1,18 @@
+# Log directory
+SCRIPT_LOG_DIR=/root/dbBackups/logs
+# Database Name
+DB_NAME=zabbix
+# Directory where all downloaded items will be placed
+DOWNLOAD_DIR=/root/dbBackups/downloads
+# Directory that a current ?DB backup will be stored
+CURRENT_BACKUP_DIR=/root/dbBackups/backups
+# S3 Bucket Name
+BUCKET_NAME=tcop-db-backups
+# Timestamp to restore the DB to
+RESTORE_TIME=2024-12-26 18:00:00 +0200
+# S3 Bucket Prefix for Full Backups
+FULL_BACKUPS_S3_PREFIX=zabx/full-backups
+# S3 Bucket Prefix for DB Logs
+DB_LOGS_S3_PREFIX=zabx/db-logs
+# Python executable/venv to use (Use 'NONE' to not use a venv, or the ABSOLUTE PATH to your venv folder)
+PYTHON_ENV=/root/dbBackups/venv

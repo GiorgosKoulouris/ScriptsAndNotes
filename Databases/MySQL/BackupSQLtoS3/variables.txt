@@ -1,20 +1,20 @@
 # Log directory
-SCRIPT_LOG_DIR=/root/dbBackups/logs
+SCRIPT_LOG_DIR=/scripts/logs
 # Database Name
-DB_NAME=testdb
+DB_NAME=zabbix
 # Database backup directory
-BACKUP_DIR=/sql/backup
+BACKUP_DIR=/dbBackups/backups
 # Database logs directory
-DB_LOG_DIR=/sql/logs
+DB_LOG_DIR=/dbBackups/logs
 # S3 Bucket Name
 BUCKET_NAME=tcop-db-backups
 # S3 Bucket Prefix for Full Backups
-BUCKET_PREFIX_BACKUPS=ec2c/full-backups
+BUCKET_PREFIX_BACKUPS=zabx/full-backups
 # S3 Bucket Prefix for DB Logs
-BUCKET_PREFIX_DB_LOGS=ec2c/db-logs
+BUCKET_PREFIX_DB_LOGS=zabx/db-logs
 # Logging level for the backup upload function - (Values: INFO or DEBUG)
 BACKUP_UPLOAD_JOB_LOG_LEVEL=INFO
 # Logging level for the log upload function - (Values: INFO or DEBUG)
 LOG_UPLOAD_JOB_LOG_LEVEL=INFO
 # Python executable/venv to use (Use 'NONE' to not use a venv, or the ABSOLUTE PATH to your venv folder)
-PYTHON_ENV=/root/dbBackups/venv
+PYTHON_ENV=/scripts/venv

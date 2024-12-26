@@ -12,7 +12,7 @@ dateToday="$(date +'%Y%m%d')"
 logFile="$SCRIPT_LOG_DIR/${dateToday}_removeOldBackups.log"
 
 print_line() {
-    timenow="$(date +'%Y-%m-%d %H:%M:%S')"
+    timenow="$(date +'%Y-%m-%d %H:%M:%S %z')"
     echo "$timenow - $1"
     echo "$timenow - $1" >> "$logFile"
 }
@@ -26,10 +26,11 @@ mkdir -p "$SCRIPT_LOG_DIR"
     exit 1
 }
 
-message="$(find "$BACKUP_DIR" -type f -name "${DB_NAME}-bak-*.sql.gz.uploaded" -exec printf '%s\n' {} +)"
+message="$(find "$BACKUP_DIR" -type f -name "${DB_NAME}-bak-*.sql.gz" -exec printf '%s\n' {} +)"
 [ "$(echo $message | grep -vE "^$" | wc -l)" -gt 0 ] && {
-    find "$BACKUP_DIR" -type f -name "${DB_NAME}-bak-*.sql.gz.uploaded" -exec rm -f {} +
+    find "$BACKUP_DIR" -type f -name "${DB_NAME}-bak-*.sql.gz" -exec rm -f {} +
     echo "$message" | while IFS= read -r line; do
         print_line "Deleting $line"
     done
 } || print_line "Nothing to delete"
+

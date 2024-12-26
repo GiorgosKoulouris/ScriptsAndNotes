@@ -8,7 +8,7 @@ PYTHON_ENV="$(cat $varFile | grep -E "^PYTHON_ENV" | awk -F'=' '{print $2}')"
 SCRIPT_LOG_DIR="$(cat $varFile | grep -E "^SCRIPT_LOG_DIR" | awk -F'=' '{print $2}')"
 
 dateToday="$(date +'%Y%m%d')"
-logFile="$SCRIPT_LOG_DIR/${dateToday}_uploadBackups.log"
+logFile="$SCRIPT_LOG_DIR/${dateToday}_dbRestore.log"
 
 print_line() {
     timenow="$(date +'%Y-%m-%d %H:%M:%S')"
@@ -19,6 +19,8 @@ print_line() {
 # Ensure the script log directory exists
 mkdir -p "$SCRIPT_LOG_DIR"
 
+print_line "Checking virtual environment..."
+
 if [[ "$PYTHON_ENV" != 'NONE' && "$PYTHON_ENV" != 'none' ]]; then
     [ ! -d "$PYTHON_ENV" ] && {
         print_line "ERROR: PYTHON_ENV directory set at file $varFile does not exist ($PYTHON_ENV). Exiting..."
@@ -28,7 +30,8 @@ if [[ "$PYTHON_ENV" != 'NONE' && "$PYTHON_ENV" != 'none' ]]; then
         print_line "ERROR: PYTHON_ENV directory set at file $varFile is not a Python environment ($PYTHON_ENV). Exiting..."
         exit 1
     }
+    print_line "Virtual environment OK. Activating..."
     source "$PYTHON_ENV/bin/activate"
 fi
 
-python3 uploadBackupsToS3.py
+python3 restoreFromS3.py
