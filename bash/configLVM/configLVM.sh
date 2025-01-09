@@ -314,6 +314,7 @@ create_filesystems() {
 		if [ "$FsType" == 'swap' ]; then
 			cmd_handle "mkswap /dev/$VgName/$LvName"
 		else
+			[ "$FsType" != 'xfs' ] && forceFlag=''
 			cmd_handle "mkfs.$FsType $forceFlag /dev/$VgName/$LvName"
 		fi
 	done < <(echo "$LV_VAR")
@@ -373,7 +374,7 @@ reset_remove_vgs() {
 }
 
 reset_remove_pvs() {
-	print_line "Remove VG Section"
+	print_line "Remove PV Section"
 	while IFS=$'\t' read -r PvName; do
 		cmd_handle "pvremove -y /dev/$PvName"
 	done < <(echo "$VG_VAR" | awk -F$'\t' '{print $1}' | sort | uniq)
