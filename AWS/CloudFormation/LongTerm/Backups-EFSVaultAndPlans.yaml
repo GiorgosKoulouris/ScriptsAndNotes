@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation stack for creating AWS backups, with backup vault and two plans based on EFS instance tags.
+
+Parameters:
+  OrgIdentifier:
+    Type: String
+    Description: Identifier to add as a prefix on resources
+
+  TagKey:
+    Type: String
+    Description: Tag that will be used for instance filtering
+
+  ProdTagValue:
+    Type: String
+    Description: Tag value that prod instances have
+
+  NonProdTagValue:
+    Type: String
+    Description: Tag value that non-prod instances have
+
+  ProdRateHours:
+    Type: Number
+    Description: "Interval for Prod backups in hours"
+    MinValue: 1
+    MaxValue: 24
+    Default: 4
+
+  ProdRetentionDays:
+    Type: Number
+    Description: "Retention for Prod backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 30
+
+  NonProdRateDays:
+    Type: Number
+    Description: "Interval for Non-Prod backups in days"
+    MinValue: 1
+    MaxValue: 7
+    Default: 2
+
+  NonProdRetentionDays:
+    Type: Number
+    Description: "Retention for Non-Prod backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 30
+
+Resources:
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub "${OrgIdentifier}-EFS-Vault"
+
+  EFSBackupExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-AwsBackupsEFS"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "backup.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackupsEFS-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EFSPermissions
+                Effect: Allow
+                Action:
+                  - elasticfilesystem:Backup
+                  - elasticfilesystem:DescribeTags
+                Resource: "*"
+              - Sid: BackupVaultPermissions
+                Effect: Allow
+                Action:
+                  - backup:DescribeBackupVault
+                  - backup:CopyIntoBackupVault
+                  - backup:CopyFromBackupVault
+                Resource: arn:aws:backup:*:*:backup-vault:*
+              - Sid: KMSPermissions
+                Effect: Allow
+                Action: kms:DescribeKey
+                Resource: "*"
+              - Sid: RecoveryPointTaggingPermissions
+                Effect: Allow
+                Action: backup:TagResource
+                Resource: arn:aws:backup:*:*:recovery-point:*
+                Condition:
+                  StringEquals:
+                    aws:PrincipalAccount: "${aws:ResourceAccount}"
+              - Sid: KMSCreateGrantPermissions
+                Effect: Allow
+                Action: kms:CreateGrant
+                Resource: "*"
+                Condition:
+                  Bool:
+                    kms:GrantIsForAWSResource: 'true'
+              - Sid: GetResourcesPermissions
+                Effect: Allow
+                Action:
+                - tag:GetResources
+                Resource: "*"
+
+  ProdBackupSelection:
+      Type: AWS::Backup::BackupSelection
+      Properties:
+        BackupPlanId: !Ref ProdBackupPlan
+        BackupSelection:
+          SelectionName: !Sub "${OrgIdentifier}-EFS-Prod-Selection"
+          IamRoleArn: !GetAtt EFSBackupExecutionRole.Arn
+          Resources:
+            - "arn:aws:elasticfilesystem:*:*:file-system/*"
+          ListOfTags:
+            - ConditionType: "STRINGEQUALS"
+              ConditionKey: !Ref TagKey
+              ConditionValue: !Ref ProdTagValue
+
+  NonProdBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref NonProdBackupPlan
+      BackupSelection:
+        SelectionName: !Sub "${OrgIdentifier}-EFS-NonProd-Selection"
+        IamRoleArn: !GetAtt EFSBackupExecutionRole.Arn
+        Resources:
+          - "arn:aws:elasticfilesystem:*:*:file-system/*"
+        ListOfTags:
+          - ConditionType: "STRINGEQUALS"
+            ConditionKey: !Ref TagKey
+            ConditionValue: !Ref NonProdTagValue
+
+  ProdBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${OrgIdentifier}-EFS-Prod-Plan"
+        BackupPlanRule:
+          - RuleName: !Sub "${OrgIdentifier}-EFS-Prod-Rule"
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: !Sub "cron(0 */${ProdRateHours} * * ? *)"
+            Lifecycle:
+              DeleteAfterDays: !Ref ProdRetentionDays
+            CopyActions: []
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            RecoveryPointTags:
+              BackupPlan: !Sub "${OrgIdentifier}-EFS-Prod-Plan"
+
+  NonProdBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${OrgIdentifier}-EFS-NonProd-Plan"
+        BackupPlanRule:
+          - RuleName: !Sub "${OrgIdentifier}-EFS-NonProd-Rule"
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: !Sub "cron(0 0 */${NonProdRateDays} * ? *)"
+            Lifecycle:
+              DeleteAfterDays: !Ref NonProdRetentionDays
+            CopyActions: []
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            RecoveryPointTags:
+              BackupPlan: !Sub "${OrgIdentifier}-EFS-NonProd-Plan"
+
+Outputs:
+  BackupVaultName:
+    Description: "The name of the Backup Vault"
+    Value: !Ref BackupVault
+  ProdPlanName:
+    Description: "The name of Prod Backup plan"
+    Value: !Ref ProdBackupPlan
+  NonProdPlanName:
+    Description: "The name of NonProd Backup plan"
+    Value: !Ref NonProdBackupPlan

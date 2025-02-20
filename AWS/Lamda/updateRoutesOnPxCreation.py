@@ -1,0 +1,72 @@
+import json
+import boto3
+import cfnresponse
+
+ec2 = boto3.client("ec2")
+
+def get_route_tables(vpc_id):
+    """Retrieve all route table IDs for a given VPC."""
+    route_tables = ec2.describe_route_tables(
+        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+    )
+    return [rt["RouteTableId"] for rt in route_tables["RouteTables"]]
+
+def handler(event, context):
+    print("Received event:", json.dumps(event, indent=2))
+
+    response_data = {}
+    status = cfnresponse.SUCCESS
+
+    try:
+        props = event["ResourceProperties"]
+        vpc1_id = props["VPC1Id"]
+        vpc2_id = props["VPC2Id"]
+        vpc1_cidr = props["VPC1CIDR"]
+        vpc2_cidr = props["VPC2CIDR"]
+        peering_connection_id = props["VpcPeeringConnectionId"]
+        vpc2_account_id = props["VPC2AccountId"]
+        vpc2_region = props["VPC2Region"]
+                  
+        same_account = event["StackId"].split(":")[4] == vpc2_account_id
+        same_region = event["StackId"].split(":")[3] == vpc2_region
+
+        if event["RequestType"] in ["Create", "Update"]:
+            route_tables_vpc1 = get_route_tables(vpc1_id)
+            for route_table_id in route_tables_vpc1:
+                ec2.create_route(
+                    RouteTableId=route_table_id,
+                    DestinationCidrBlock=vpc2_cidr,
+                    VpcPeeringConnectionId=peering_connection_id
+                )
+
+            if same_account and same_region:
+                route_tables_vpc2 = get_route_tables(vpc2_id)
+                for route_table_id in route_tables_vpc2:
+                    ec2.create_route(
+                        RouteTableId=route_table_id,
+                        DestinationCidrBlock=vpc1_cidr,
+                        VpcPeeringConnectionId=peering_connection_id
+                    )
+
+            elif event["RequestType"] == "Delete":
+                route_tables_vpc1 = get_route_tables(vpc1_id)
+                for route_table_id in route_tables_vpc1:
+                    ec2.delete_route(
+                        RouteTableId=route_table_id,
+                        DestinationCidrBlock=vpc2_cidr
+                    )
+
+                if same_account and same_region:
+                    route_tables_vpc2 = get_route_tables(vpc2_id)
+                    for route_table_id in route_tables_vpc2:
+                        ec2.delete_route(
+                            RouteTableId=route_table_id,
+                            DestinationCidrBlock=vpc1_cidr
+                        )
+
+    except Exception as e:
+        print("Error:", str(e))
+        status = cfnresponse.FAILED
+        response_data["Error"] = str(e)
+
+    cfnresponse.send(event, context, status, response_data)

@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a VPC, subnets, and security groups
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Description: CIDR block for the VPC
+  VpcName:
+    Type: String
+    Description: Name of the VPC
+  PublicSubnetCidr:
+    Type: String
+    Description: CIDR block for the public subnet
+  PrivateSubnetCidr:
+    Type: String
+    Description: CIDR block for the private subnet
+  SubnetAz:
+    Type: String
+    Description: Availability Zone for the subnets
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Ref VpcName
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-IGW"
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Ref SubnetAz
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-Public"
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCidr
+      AvailabilityZone: !Ref SubnetAz
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-Private"
+
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public subnet SG
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-Public-SG"
+
+  PrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private subnet SG
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-Private-SG"
+
+  PublicSGIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref PrivateSecurityGroup
+      Description: From Private
+
+  PublicSGIngressFromPublic:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref PublicSecurityGroup
+      Description: From Public
+
+  PublicSGEgressRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PublicSecurityGroup
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+      Description: Allow all
+
+  PrivateSGEgressRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+      Description: Allow all
+
+  PrivateSGIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref PrivateSecurityGroup
+      Description: From Private
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-Public-RT"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-Private-RT"
+
+  PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  PublicRtInternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway

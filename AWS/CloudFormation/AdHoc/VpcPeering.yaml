@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Creates a VPC Peering connection and updates existing route tables using a Lambda function."
+
+Parameters:
+  PeeringName:
+    Type: String
+    Description: "Name of the peering connection"
+  VPC1Id:
+    Type: String
+    Description: "VPC ID of the first VPC (owned by this account)"
+  VPC2Id:
+    Type: String
+    Description: "VPC ID of the second VPC (can be in another account)"
+  VPC1CIDR:
+    Type: String
+    Description: "CIDR block of the first VPC"
+  VPC2CIDR:
+    Type: String
+    Description: "CIDR block of the second VPC"
+  VPC2AccountId:
+    Type: String
+    Description: "Account ID of the second VPC owner (can be the same or different)"
+  VPC2Region:
+    Type: String
+    Description: "Region of the second VPC"
+  ExistingLambdaArn:
+    Type: String
+    Default: ""
+    Description: "ARN of the Lambda function for updating routes (leave empty to use exported value)."
+
+Resources:
+  VPCPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref VPC1Id
+      PeerVpcId: !Ref VPC2Id
+      PeerRegion: !Ref VPC2Region
+      Tags:
+        - Key: Name
+          Value: !Ref PeeringName
+
+  RouteUpdateCustomResource:
+    Type: Custom::RouteUpdate
+    Properties:
+      ServiceToken: !If
+        - UseExistingLambda
+        - !Ref ExistingLambdaArn
+        - !ImportValue VPCPeeringRouteUpdaterArn
+      VPC1Id: !Ref VPC1Id
+      VPC2Id: !Ref VPC2Id
+      VPC1CIDR: !Ref VPC1CIDR
+      VPC2CIDR: !Ref VPC2CIDR
+      VPC2AccountId: !Ref VPC2AccountId
+      VPC2Region: !Ref VPC2Region
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+Conditions:
+  UseExistingLambda: !Not [!Equals [!Ref ExistingLambdaArn, ""]]
+
+Outputs:
+  VPCPeeringConnectionId:
+    Description: "ID of the created VPC Peering Connection"
+    Value: !Ref VPCPeeringConnection

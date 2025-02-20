@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation stack for creating AWS backups, with backup vault and two plans based on EC2 instance tags.
+
+Parameters:
+  OrgIdentifier:
+    Type: String
+    Description: Identifier to add as a prefix on resources
+
+  TagKey:
+    Type: String
+    Description: Tag that will be used for instance filtering
+
+  ProdTagValue:
+    Type: String
+    Description: Tag value that prod instances have
+
+  NonProdTagValue:
+    Type: String
+    Description: Tag value that non-prod instances have
+
+  ProdRateHours:
+    Type: Number
+    Description: "Interval for Prod backups in hours"
+    MinValue: 1
+    MaxValue: 24
+    Default: 4
+
+  ProdRetentionDays:
+    Type: Number
+    Description: "Retention for Prod backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 30
+
+  NonProdRateDays:
+    Type: Number
+    Description: "Interval for Non-Prod backups in days"
+    MinValue: 1
+    MaxValue: 7
+    Default: 2
+
+  NonProdRetentionDays:
+    Type: Number
+    Description: "Retention for Non-Prod backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 30
+
+Resources:
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub "${OrgIdentifier}-EC2-Vault"
+
+  BackupExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-AwsBackupsEC2"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "backup.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackupsEC2-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EBSCopyPermissions
+                Effect: Allow
+                Action:
+                - ec2:CopySnapshot
+                Resource: arn:aws:ec2:*::snapshot/*
+              - Sid: EC2CopyPermissions
+                Effect: Allow
+                Action:
+                - ec2:CopyImage
+                Resource: "*"
+              - Sid: EBSTagAndDeletePermissions
+                Effect: Allow
+                Action:
+                - ec2:CreateTags
+                - ec2:DeleteSnapshot
+                Resource: arn:aws:ec2:*::snapshot/*
+              - Sid: EC2Permissions
+                Effect: Allow
+                Action:
+                - ec2:CreateImage
+                - ec2:DeregisterImage
+                - ec2:DescribeSnapshots
+                - ec2:DescribeTags
+                - ec2:DescribeImages
+                - ec2:DescribeInstances
+                - ec2:DescribeInstanceAttribute
+                - ec2:DescribeInstanceCreditSpecifications
+                - ec2:DescribeNetworkInterfaces
+                - ec2:DescribeElasticGpus
+                - ec2:DescribeSpotInstanceRequests
+                - ec2:DescribeSnapshotTierStatus
+                Resource: "*"
+              - Sid: EC2TagPermissions
+                Effect: Allow
+                Action:
+                - ec2:CreateTags
+                Resource: arn:aws:ec2:*:*:image/*
+              - Sid: EC2ModifyPermissions
+                Effect: Allow
+                Action:
+                - ec2:ModifySnapshotAttribute
+                - ec2:ModifyImageAttribute
+                Resource: "*"
+                Condition:
+                  'Null':
+                    aws:ResourceTag/aws:backup:source-resource: 'false'
+              - Sid: EBSSnapshotTierPermissions
+                Effect: Allow
+                Action:
+                - ec2:ModifySnapshotTier
+                Resource: arn:aws:ec2:*::snapshot/*
+                Condition:
+                  'Null':
+                    aws:ResourceTag/aws:backup:source-resource: 'false'
+              - Sid: BackupVaultPermissions
+                Effect: Allow
+                Action:
+                - backup:DescribeBackupVault
+                - backup:CopyIntoBackupVault
+                Resource: arn:aws:backup:*:*:backup-vault:*
+              - Sid: BackupVaultCopyPermissions
+                Effect: Allow
+                Action:
+                - backup:CopyFromBackupVault
+                Resource: "*"
+              - Sid: EBSResourcePermissions
+                Effect: Allow
+                Action:
+                - ec2:CreateSnapshot
+                - ec2:DeleteSnapshot
+                - ec2:DescribeVolumes
+                - ec2:DescribeSnapshots
+                Resource:
+                - arn:aws:ec2:*::snapshot/*
+                - arn:aws:ec2:*:*:volume/*
+              - Sid: KMSPermissions
+                Effect: Allow
+                Action: kms:DescribeKey
+                Resource: "*"
+              - Sid: KMSCreateGrantPermissions
+                Effect: Allow
+                Action: kms:CreateGrant
+                Resource: "*"
+                Condition:
+                  Bool:
+                    kms:GrantIsForAWSResource: 'true'
+              - Sid: KMSDataKeyEC2Permissions
+                Effect: Allow
+                Action:
+                - kms:GenerateDataKeyWithoutPlaintext
+                Resource: arn:aws:kms:*:*:key/*
+                Condition:
+                  StringLike:
+                    kms:ViaService:
+                    - ec2.*.amazonaws.com
+              - Sid: GetResourcesPermissions
+                Effect: Allow
+                Action:
+                - tag:GetResources
+                Resource: "*"
+              - Sid: SSMPermissions
+                Effect: Allow
+                Action:
+                - ssm:CancelCommand
+                - ssm:GetCommandInvocation
+                Resource: "*"
+              - Sid: SSMSendPermissions
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                - arn:aws:ssm:*:*:document/AWSEC2-CreateVssSnapshot
+                - arn:aws:ec2:*:*:instance/*
+              - Sid: RecoveryPointTaggingPermissions
+                Effect: Allow
+                Action:
+                - backup:TagResource
+                Resource: arn:aws:backup:*:*:recovery-point:*
+                Condition:
+                  StringEquals:
+                    aws:PrincipalAccount: "${aws:ResourceAccount}"
+
+  ProdBackupSelection:
+      Type: AWS::Backup::BackupSelection
+      Properties:
+        BackupPlanId: !Ref ProdBackupPlan
+        BackupSelection:
+          SelectionName: !Sub "${OrgIdentifier}-EC2-Prod-Selection"
+          IamRoleArn: !GetAtt BackupExecutionRole.Arn
+          Resources:
+            - "arn:aws:ec2:*:*:instance/*"
+          ListOfTags:
+            - ConditionType: "STRINGEQUALS"
+              ConditionKey: !Ref TagKey
+              ConditionValue: !Ref ProdTagValue
+
+  NonProdBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref NonProdBackupPlan
+      BackupSelection:
+        SelectionName: !Sub "${OrgIdentifier}-EC2-NonProd-Selection"
+        IamRoleArn: !GetAtt BackupExecutionRole.Arn
+        Resources:
+          - "arn:aws:ec2:*:*:instance/*"
+        ListOfTags:
+          - ConditionType: "STRINGEQUALS"
+            ConditionKey: !Ref TagKey
+            ConditionValue: !Ref NonProdTagValue
+
+  ProdBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${OrgIdentifier}-EC2-Prod-Plan"
+        BackupPlanRule:
+          - RuleName: !Sub "${OrgIdentifier}-EC2-Prod-Rule"
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: !Sub "cron(0 */${ProdRateHours} * * ? *)"
+            Lifecycle:
+              DeleteAfterDays: !Ref ProdRetentionDays
+            CopyActions: []
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            RecoveryPointTags:
+              BackupPlan: !Sub "${OrgIdentifier}-EC2-Prod-Plan"
+
+  NonProdBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${OrgIdentifier}-EC2-NonProd-Plan"
+        BackupPlanRule:
+          - RuleName: !Sub "${OrgIdentifier}-EC2-NonProd-Rule"
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: !Sub "cron(0 0 */${NonProdRateDays} * ? *)"
+            Lifecycle:
+              DeleteAfterDays: !Ref NonProdRetentionDays
+            CopyActions: []
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            RecoveryPointTags:
+              BackupPlan: !Sub "${OrgIdentifier}-EC2-NonProd-Plan"
+
+Outputs:
+  BackupVaultName:
+    Description: "The name of the Backup Vault"
+    Value: !Ref BackupVault
+  ProdPlanName:
+    Description: "The name of Prod Backup plan"
+    Value: !Ref ProdBackupPlan
+  NonProdPlanName:
+    Description: "The name of NonProd Backup plan"
+    Value: !Ref NonProdBackupPlan
