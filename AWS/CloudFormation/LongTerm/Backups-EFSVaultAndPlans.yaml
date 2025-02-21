@@ -112,8 +112,6 @@ Resources:
         BackupSelection:
           SelectionName: !Sub "${OrgIdentifier}-EFS-Prod-Selection"
           IamRoleArn: !GetAtt EFSBackupExecutionRole.Arn
-          Resources:
-            - "arn:aws:elasticfilesystem:*:*:file-system/*"
           ListOfTags:
             - ConditionType: "STRINGEQUALS"
               ConditionKey: !Ref TagKey
@@ -126,8 +124,6 @@ Resources:
       BackupSelection:
         SelectionName: !Sub "${OrgIdentifier}-EFS-NonProd-Selection"
         IamRoleArn: !GetAtt EFSBackupExecutionRole.Arn
-        Resources:
-          - "arn:aws:elasticfilesystem:*:*:file-system/*"
         ListOfTags:
           - ConditionType: "STRINGEQUALS"
             ConditionKey: !Ref TagKey

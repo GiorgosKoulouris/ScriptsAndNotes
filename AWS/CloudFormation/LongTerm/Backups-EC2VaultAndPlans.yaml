@@ -196,8 +196,6 @@ Resources:
         BackupSelection:
           SelectionName: !Sub "${OrgIdentifier}-EC2-Prod-Selection"
           IamRoleArn: !GetAtt BackupExecutionRole.Arn
-          Resources:
-            - "arn:aws:ec2:*:*:instance/*"
           ListOfTags:
             - ConditionType: "STRINGEQUALS"
               ConditionKey: !Ref TagKey
@@ -210,8 +208,6 @@ Resources:
       BackupSelection:
         SelectionName: !Sub "${OrgIdentifier}-EC2-NonProd-Selection"
         IamRoleArn: !GetAtt BackupExecutionRole.Arn
-        Resources:
-          - "arn:aws:ec2:*:*:instance/*"
         ListOfTags:
           - ConditionType: "STRINGEQUALS"
             ConditionKey: !Ref TagKey
