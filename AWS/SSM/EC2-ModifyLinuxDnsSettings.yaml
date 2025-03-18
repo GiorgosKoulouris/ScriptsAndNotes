@@ -1,0 +1,550 @@
+schemaVersion: '0.3'
+description: Modify Linux DNS settings
+parameters:
+  InstanceID:
+    description: Select EC2 instances to operate on.
+    type: AWS::EC2::Instance::Id
+  DnsServers:
+    description: Desired DNS servers. Multiple values are space-separated. Type 'useDHCP' to use DHCP options.
+    type: String
+    default: useDHCP
+  DnsSearch:
+    description: Desired DNS suffix list. Multiple values are space-separated. Type 'useDHCP' to use DHCP options.
+    type: String
+    default: useDHCP
+  CommentHostfiles:
+    description: Type an IP range to comment hostfiles entries in this range. Type 'NONE' to skip this step.
+    type: String
+    default: NONE
+  Discovery:
+    description: Type 'true' if you want to just see the current configuration but apply no changes.
+    type: String
+    default: 'false'
+mainSteps:
+  - name: runCommand
+    action: aws:runCommand
+    isEnd: true
+    inputs:
+      DocumentName: AWS-RunShellScript
+      InstanceIds:
+        - '{{ InstanceID }}'
+      Parameters:
+        commands:
+          - |
+            #!/bin/bash
+
+            # Function to display usage
+            usage() {
+                echo "Usage: $0 --dns-servers '<dns_servers>' --search-domains '<search_domains>'"
+                echo "If 'useDHCP' is provided for either option, it will reset the corresponding settings to DHCP."
+                echo
+                echo "Examples:"
+                echo "  Check how DNS is configured:"
+                echo "      $0 --discovery"
+                echo "  Set both DNS servers and search domains:"
+                echo "      $0 --dns-servers '8.8.8.8 8.8.4.4' --search-domains 'example.com other-example.com'"
+                echo "  Reset both DNS servers and search domains to DHCP:"
+                echo "      $0 --dns-servers useDHCP --search-domains useDHCP"
+                echo "  Set DNS servers but do not modify search domains. Also comment hostfile entries for a CIDR:"
+                echo "      $0 --dns-servers '1.1.1.1' --comment-hostfiles '10.161.25.0/23"
+                exit 1
+            }
+
+            script_log() {
+                current_time=$(date +"%Y-%m-%d %H:%M:%S")
+                echo "[$current_time] - $1: $2"
+                if [ "$WRITE_LOGS_TO_FILE" == 'true' ]; then
+                    echo "[$current_time] - $1: $2" >>"$LOG_FILE"
+                fi
+            }
+
+            backup_file() {
+                current_time=$(date +"%Y-%m-%d")
+                backup_file_path="$1.$current_time.bak"
+                [ -f "$1" ] && {
+                    cp "$1" "$backup_file_path"
+                    script_log INF "Created backup file: $backup_file_path"
+                } || script_log INF "File not found ($1). Skipping backup creation"
+            }
+
+            init_vars() {
+                discovery=false
+                dns_methods=()
+                is_systemd=""
+                dns_servers=""
+                search_domains=""
+                cidr_to_comment=""
+                script_log INF "Initialized variables"
+            }
+
+            validate_ips() {
+                script_log INF "Validating DNS server IPs"
+                # Loop through each IP
+                for ip in $1; do
+                    # Validate if the IP is valid using a regex
+                    if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                        # Check if each octet is between 0 and 255
+                        for octet in $(echo $ip | tr '.' ' '); do
+                            if [[ $octet -lt 0 || $octet -gt 255 ]]; then
+                                invalid=true
+                                break
+                            fi
+                        done
+                        if [ $invalid ]; then
+                            script_log ERR "Invalid DNS IP (octet out of range): $ip"
+                            exit 1
+                        else
+                            script_log INF "Valid DNS IP: $ip"
+                        fi
+                    else
+                        script_log ERR "Invalid DNS IP (incorrect format): $ip"
+                        exit 1
+                    fi
+                done
+            }
+
+            validate_search_domains() {
+                script_log INF "Validating search domains"
+                for domain in $1; do
+                    # Validate if the domain is valid using a regex
+                    if [[ $domain =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]; then
+                        script_log INF "Valid search domain: $domain"
+                    else
+                        script_log ERR "Found invalid search domain (incorrect format): $domain"
+                        exit 1
+                    fi
+                done
+            }
+
+            parse_arguments() {
+                dns_servers="{{ DnsServers }}"
+                [ "$dns_servers" != "useDHCP" ] && validate_ips "$dns_servers"
+                search_domains="{{ DnsSearch }}"
+                [ "$search_domains" != "useDHCP" ] && validate_search_domains "$search_domains"
+                discovery="{{ Discovery }}"
+                cidr_to_comment="{{ CommentHostfiles }}"
+
+                if [[ -z $dns_servers && -z $search_domains && "$discovery" != "true" ]]; then
+                    script_log ERR "No arguments were provided. Provide arguments or execute in 'Discovery Mode'"
+                    usage
+                fi
+            }
+
+            get_systemd() {
+                which systemctl >/dev/null 2>&1
+                [ $? -eq 0 ] && {
+                    is_systemd=true
+                    script_log INF "System is running under systemd"
+                } || script_log INF "System not running under systemd"
+            }
+
+            # Function to detect OS
+
+            get_dns_methods() {
+                # to check if netplan is to be added here as a method
+                script_log INF "Determining DNS configuration methods"
+
+                if [ $is_systemd ]; then
+                    systemctl is-active --quiet NetworkManager && {
+                        dns_methods+=("NetworkManager")
+                        script_log INF "Service discovery: NetworkManager was found running"
+                    }
+                else
+                    service NetworkManager status >/dev/null 2>&1 && {
+                        dns_methods+=("NetworkManager")
+                        script_log INF "Service discovery: NetworkManager was found running"
+                    }
+                fi
+
+                if [ $is_systemd ]; then
+                    systemctl is-active --quiet systemd-resolved && {
+                        dns_methods+=("systemd-resolved")
+                        script_log INF "Service discovery: systemd-resolved was found running"
+                    }
+                else
+                    service systemd-resolved status >/dev/null 2>&1 && {
+                        dns_methods+=("systemd-resolved")
+                        script_log INF "Service discovery: systemd-resolved was found running"
+                    }
+                fi
+
+                which netconfig >/dev/null 2>&1
+                [ $? -eq 0 ] && {
+                    dns_methods+=("netconfig")
+                    script_log INF "Binary discovery: netconfig was found"
+                }
+
+                dhclient_process_count="$(ps -e | grep dhclient | wc -l)"
+                [ $dhclient_process_count -gt 0 ] && {
+                    dns_methods+=("dhclient")
+                    script_log INF "Process discovery: dhclient was found"
+                }
+
+                # which netplan >/dev/null 2>&1
+                # [ $? -eq 0 ] && {
+                #     dns_methods+=("netplan")
+                #     script_log INF "Binary discovery: netplan was found"
+                # }
+            }
+
+            check_dns_method_count() {
+                method_count="${#dns_methods[@]}"
+                [ $method_count -gt 1 ] && {
+                    script_log ERR "Multiple DNS configurations found. Investigate manually"
+                    exit 1
+                } || script_log INF "No multiple DNS configurations found"
+            }
+
+            check_resolv_attr() {
+                RESOLV_CONF=/etc/resolv.conf
+                ATTRIBUTES=$(lsattr "$RESOLV_CONF" 2>/dev/null)
+
+                if [ -L $RESOLV_CONF ]; then
+                    [ "$discovery" == "false" ] && {
+                        script_log INF "Skipping immutable attribute check on $RESOLV_CONF since it is a link"
+                    } || {
+                        script_log INF "Will skip immutable attribute check on $RESOLV_CONF since it is a link"
+                    }
+                else
+                    if echo "$ATTRIBUTES" | awk '{print $1}' | grep -q "i"; then
+                        [ "$discovery" == "false" ] && {
+                            chattr -i $RESOLV_CONF
+                            script_log INF "Removed immutable attribute from $RESOLV_CONF"
+                        } || {
+                            script_log INF "Will remove immutable attribute from $RESOLV_CONF"
+                        }
+                    else
+                        script_log INF "Immutable attribute not found for $RESOLV_CONF"
+                    fi
+                fi
+            }
+
+            apply_changes() {
+                if [ "$discovery" == "false" ]; then
+                    for method in "${dns_methods[@]}"; do
+                        script_log INF "Applying changes for method: $method"
+                        case "$method" in
+                        NetworkManager)
+                            apply_changes_network_manager
+                            ;;
+                        systemd-resolved)
+                            apply_changes_systemd_resolved
+                            ;;
+                        netconfig)
+                            apply_changes_netconfig
+                            ;;
+                        neplan)
+                            apply_changes_netplan
+                            ;;
+                        dhclient)
+                            apply_changes_dhclient
+                            ;;
+                        esac
+                    done
+                else
+                    script_log INF "Discovery mode: Skipping modifications..."
+                fi
+            }
+
+            apply_changes_systemd_resolved() {
+                # Define the resolved.conf path
+                RESOLVED_CONF="/etc/systemd/resolved.conf"
+
+                [ ! -f "$RESOLVED_CONF" ] && {
+                    script_log ERR "Config file not found ($RESOLVED_CONF)"
+                    exit 1
+                }
+
+                backup_file "$RESOLVED_CONF"
+
+                # Modify DNS servers if specified
+                if [ "$dns_servers" != "" ]; then
+                    if [[ "$dns_servers" == "useDHCP" ]]; then
+                        script_log INF "Resetting DNS servers to DHCP (removing static configuration)"
+                        sed -i '/^DNS=/d' "$RESOLVED_CONF"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    else
+                        script_log INF "Setting DNS servers to: $dns_servers"
+                        grep -qE "^DNS=" "$RESOLVED_CONF" && {
+                            sed -i "s/^DNS=.*/DNS=$dns_servers/" "$RESOLVED_CONF"
+                        } || echo "DNS=$dns_servers" >>"$RESOLVED_CONF"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    fi
+                else
+                    script_log INF "No new DNS servers provided. Skipping..."
+                fi
+
+                if [ "$search_domains" != "" ]; then
+                    # Modify Search domains if specified
+                    if [[ "$search_domains" == "useDHCP" ]]; then
+                        script_log INF "Resetting search domains to DHCP (removing static configuration)"
+                        sed -i '/^Domains=/d' "$RESOLVED_CONF"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    else
+                        script_log INF "Setting search domains to: $search_domains"
+                        grep -qE "^Domains=" "$RESOLVED_CONF" && {
+                            sed -i "s/^Domains=.*/Domains=$search_domains/" "$RESOLVED_CONF"
+                        } || echo "Domains=$search_domains" >>"$RESOLVED_CONF"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    fi
+                else
+                    script_log INF "No new search domains provided. Skipping..."
+                fi
+
+                # Restart systemd-resolved to apply changes
+                script_log INF "Restarting systemd-resolved service..."
+                systemctl restart systemd-resolved
+                [ $? -ne 0 ] && {
+                    script_log ERR "Failed to restart the service. Exiting..."
+                    exit 1
+                }
+            }
+
+            apply_changes_netconfig() {
+                CONFIG_FILE=/etc/sysconfig/network/config
+
+                backup_file "$CONFIG_FILE"
+
+                if [ "$dns_servers" != "" ]; then
+                    # Modify DNS servers if specified
+                    if [[ "$dns_servers" == "useDHCP" ]]; then
+                        script_log INF "Resetting DNS servers to DHCP (removing static configuration)"
+                        sed -i "s/^NETCONFIG_DNS_STATIC_SERVERS=.*/NETCONFIG_DNS_STATIC_SERVERS=\"\"/" "$CONFIG_FILE"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    else
+                        script_log INF "Setting DNS servers to: $dns_servers"
+                        grep -qE "^NETCONFIG_DNS_STATIC_SERVERS=" "$CONFIG_FILE" && {
+                            sed -i "s/^NETCONFIG_DNS_STATIC_SERVERS=.*/NETCONFIG_DNS_STATIC_SERVERS=\"$dns_servers\"/" "$CONFIG_FILE"
+                        } || echo "NETCONFIG_DNS_STATIC_SERVERS=\"$dns_servers\"" >>"$CONFIG_FILE"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    fi
+                else
+                    script_log INF "No new DNS servers provided. Skipping..."
+                fi
+
+                if [ "$search_domains" != "" ]; then
+                    # Modify Search domains if specified
+                    if [[ "$search_domains" == "useDHCP" ]]; then
+                        script_log INF "Resetting search domains to DHCP (removing static configuration)"
+                        sed -i '/^NETCONFIG_DNS_STATIC_SEARCHLIST=/d' "$CONFIG_FILE"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    else
+                        script_log INF "Setting search domains to: $search_domains"
+                        grep -qE "^NETCONFIG_DNS_STATIC_SEARCHLIST=" "$CONFIG_FILE" && {
+                            sed -i "s/^NETCONFIG_DNS_STATIC_SEARCHLIST=.*/NETCONFIG_DNS_STATIC_SEARCHLIST=\"$search_domains\"/" "$CONFIG_FILE"
+                        } || echo "NETCONFIG_DNS_STATIC_SEARCHLIST=\"$search_domains\"" >>"$CONFIG_FILE"
+                        [ $? -ne 0 ] && {
+                            script_log ERR "Failed to modify the file. Exiting..."
+                            exit 1
+                        }
+                    fi
+                else
+                    script_log INF "No new search domains provided. Skipping..."
+                fi
+
+                script_log INF "Apllying the new configuration..."
+                netconfig update -f
+                [ $? -ne 0 ] && {
+                    script_log ERR "Failed to apply the configuration. Exiting..."
+                    exit 1
+                }
+            }
+
+            apply_changes_network_manager() {
+                # Identify the active connection name
+                active_connection=$(nmcli -t -f NAME,TYPE,STATE connection show --active | grep ethernet | awk -F: '{print $1}')
+
+                # Check if an active connection was foung
+                if [ -z "$active_connection" ]; then
+                    echo "No active Ethernet connection found."
+                    exit 1
+                fi
+
+                nm_dns_sentries="$(grep -irE "(^dns=|^dns-search)" /etc/NetworkManager/NetworkManager.conf /etc/NetworkManager/conf.d/)"
+                if [ $? -eq 0 ]; then
+                    files="$(echo "$nm_dns_sentries" | awk -F':' '{print $1}')"
+                    while IFS= read -r file; do
+                        backup_file "$file"
+                        script_log INF "Commenting DNS configurations in $file"
+                        sed -i "s/^dns=.*/#dns=/g" "$file"
+                        sed -i "s/^dns-search=.*/#dns-search=/g" "$file"
+                        nm_needs_restart=true
+                    done <<<$files
+                else
+                    script_log INF "No DNS configuration found in NetworkManager conf files"
+                fi
+
+                if [ "$dns_servers" != "" ]; then
+                    # Modify DNS servers if specified
+                    if [[ "$dns_servers" == "useDHCP" ]]; then
+                        script_log INF "Resetting DNS servers to DHCP (removing static configuration)"
+                        dns_servers=""
+                    else
+                        script_log INF "Setting DNS servers to: $dns_servers"
+                    fi
+                    nmcli connection modify "$active_connection" ipv4.dns "$dns_servers"
+                    [ $? -ne 0 ] && {
+                        script_log ERR "Failed to modify the connection. Exiting..."
+                        exit 1
+                    }
+                else
+                    script_log INF "No new DNS servers provided. Skipping..."
+                fi
+
+                if [ "$search_domains" != "" ]; then
+                    # Modify search domains if specified
+                    if [[ "$search_domains" == "useDHCP" ]]; then
+                        script_log INF "Resetting search domains to DHCP (removing static configuration)"
+                        search_domains=""
+                    else
+                        script_log INF "Setting search domains to: $search_domains"
+                    fi
+                    nmcli connection modify "$active_connection" ipv4.dns-search "$search_domains"
+                    [ $? -ne 0 ] && {
+                        script_log ERR "Failed to modify the connection. Exiting..."
+                        exit 1
+                    }
+                else
+                    script_log INF "No new search domains provided. Skipping..."
+                fi
+
+                # Apply the changes
+                if [ $nm_needs_restart ]; then
+                    script_log INF "Restarting NetowrkManager..."
+                    if [ $is_systemd ]; then
+                        systemctl restart NetworkManager
+                    else
+                        service NetworkManager restart
+                    fi
+                else
+                    script_log INF "Applying configuration on connection $active_connection..."
+                    nmcli connection up "$active_connection" >/dev/null
+                fi
+                [ $? -ne 0 ] && {
+                    script_log ERR "Failed to apply the changes. Exiting..."
+                    exit 1
+                }
+
+            }
+
+            apply_changes_dhclient() {
+                dc_dns_sentries="$(grep -irE "(^[^#].* (domain-name-servers |domain-name ))" "/etc/dhcp/")"
+                if [ $? -eq 0 ]; then
+                    files="$(echo "$dc_dns_sentries" | awk -F':' '{print $1}' | sort | uniq)"
+                    while IFS= read -r file; do
+                        backup_file "$file"
+
+                        if [ "$dns_servers" == "useDHCP" ]; then
+                            script_log INF "Commenting DNS server configurations in $file"
+                            sed -i '/^[^#].* domain-name-servers /s/^/#/' $file
+                        else
+                            script_log INF "Modifying DNS server configurations in $file"
+                            sed -i "/^.* domain-name-servers /c\supersede domain-name-servers \"$dns_servers\";" $file
+                        fi
+
+                        if [ "$search_domains" == "useDHCP" ]; then
+                            script_log INF "Commenting search domain configurations in $file"
+                            sed -i '/^[^#].* domain-name /s/^/#/' $file
+                        else
+                            script_log INF "Modifying search domain configurations in $file"
+                            sed -i "/^.* domain-name /c\supersede domain-name \"$search_domains\";" $file
+                        fi
+                    done <<<$files
+                    script_log INF "Restarting dhclient with the new configuration"
+                    dhclient -r
+                    dhclient
+                else
+                    if [[ "$dns_servers" != "useDHCP" || "$search_domains" != "useDHCP" ]]; then
+                        DHCLIENT_CONF=/etc/dhcp/dhclient.conf
+                        script_log INF "Adding DNS configuration in $DHCLIENT_CONF"
+                        backup_file $DHCLIENT_CONF
+
+                        [ "$dns_servers" != "useDHCP" ] && echo "supersede domain-name-servers \"$dns_servers\";" >>$DHCLIENT_CONF
+                        [ "$search_domains" != "useDHCP" ] && echo "supersede domain-name \"$search_domains\";" >>$DHCLIENT_CONF
+
+                        script_log INF "Restarting dhclient with the new configuration"
+                        dhclient -r
+                        dhclient
+                    fi
+                fi
+            }
+
+            ip_to_int() {
+                local IFS=.
+                local ip=($1)
+                echo $(( (${ip[0]} << 24) + (${ip[1]} << 16) + (${ip[2]} << 8) + ${ip[3]} ))
+            }
+
+            int_to_ip() {
+                local ip
+                ip[0]=$(( ($1 >> 24) & 255 ))
+                ip[1]=$(( ($1 >> 16) & 255 ))
+                ip[2]=$(( ($1 >> 8) & 255 ))
+                ip[3]=$(( $1 & 255 ))
+                echo "${ip[0]}.${ip[1]}.${ip[2]}.${ip[3]}"
+            }
+
+            comment_hosts_file() {
+                if [ "$cidr_to_comment" != "" ]; then
+                    local network_address
+                    local subnet_mask
+                    local start_ip
+                    local end_ip
+
+                    HOSTFILE=/etc/hosts
+                    backup_file $HOSTFILE
+
+                    # Parse the network range
+                    IFS='/' read -r network_address subnet_mask <<< "$cidr_to_comment"
+
+                    # Calculate the start and end IP addresses
+                    local start=$(ip_to_int "$network_address")
+                    local mask=$(( 0xffffffff << (32 - subnet_mask) ))
+                    local end=$(( start | ~mask & 0xffffffff ))
+
+                    script_log "INF" "Commenting out entries in $HOSTFILE for the network range: $cidr_to_comment"
+
+                    # Comment out entries within the specified network range
+                    while IFS= read -r line; do
+                        if [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+                            ip=$(echo "$line" | awk '{print $1}')
+                            ip_val=$(ip_to_int "$ip")
+                            if (( ip_val >= start && ip_val <= end )); then
+                                sed -i "s/^$line/# $line/" $HOSTFILE
+                                script_log "INF" "Commented out: $line"
+                            fi
+                        fi
+                    done < $HOSTFILE
+                fi
+            }
+
+            init_vars
+            parse_arguments
+            get_systemd
+            get_dns_methods
+            check_dns_method_count
+            check_resolv_attr
+            apply_changes
+            comment_hosts_file
+            exit 0

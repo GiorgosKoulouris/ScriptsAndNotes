@@ -1,0 +1,32 @@
+schemaVersion: '0.3'
+description: Creates an AMI and then terminates the instance
+parameters:
+  Activity:
+    type: String
+  InstanceID:
+    type: String
+variables:
+  Date:
+    type: String
+    default: '{{ global:DATE }}'
+  Activity:
+    type: String
+    default: '{{ Activity }}'
+mainSteps:
+  - name: CreateAMI
+    action: aws:createImage
+    nextStep: TerminateInstances
+    isEnd: false
+    onCancel: Abort
+    onFailure: Abort
+    inputs:
+      ImageName: '{{ InstanceID }}_{{ Activity }}_{{global:DATE }}'
+      InstanceId: '{{ InstanceID }}'
+  - name: TerminateInstances
+    action: aws:executeAwsApi
+    isEnd: true
+    inputs:
+      Service: ec2
+      Api: TerminateInstances
+      InstanceIds:
+        - '{{ InstanceID }}'
