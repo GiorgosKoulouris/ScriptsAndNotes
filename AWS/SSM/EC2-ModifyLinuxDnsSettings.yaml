@@ -506,7 +506,7 @@ mainSteps:
             }
 
             comment_hosts_file() {
-                if [ "$cidr_to_comment" != "" ]; then
+                if [ "$cidr_to_comment" != "NONE" ]; then
                     local network_address
                     local subnet_mask
                     local start_ip
