@@ -5,6 +5,7 @@ Parameters:
   OrgIdentifier:
     Type: String
     Description: Identifier to add as a prefix on resources
+    Default: TCOP
 
 Resources:
   LambdaExecutionRole:

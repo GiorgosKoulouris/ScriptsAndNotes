@@ -5,6 +5,7 @@ Parameters:
   OrgIdentifier:
     Type: String
     Description: Identifier to add as a prefix on roles and policies
+    Default: TCOP
   IdpName:
     Type: String
     Description: "The name of the SAML Identity Provider"

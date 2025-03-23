@@ -5,18 +5,22 @@ Parameters:
   OrgIdentifier:
     Type: String
     Description: Identifier to add as a prefix on resources
+    Default: TCOP
 
   TagKey:
     Type: String
     Description: Tag that will be used for instance filtering
+    Default: backup_plan
 
   ProdTagValue:
     Type: String
     Description: Tag value that prod instances have
+    Default: efs-prd
 
   NonProdTagValue:
     Type: String
     Description: Tag value that non-prod instances have
+    Default: efs-nprd
 
   ProdRateHours:
     Type: Number
