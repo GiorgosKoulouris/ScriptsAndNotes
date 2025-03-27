@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda function to update Route 53 records when EC2 instances have their tags updated.
+
+Parameters:
+  OrgIdentifier:
+    Type: String
+    Description: Identifier to add as a prefix on resources
+    Default: TCOP
+
+  TagKey:
+    Type: String
+    Description: Tag that will be used for instance filtering
+    Default: r3_integration
+
+  DefaultTTL:
+    Type: Number
+    Description: TTL for the Route53 records created by Lambda
+    Default: 300
+
+Resources:
+  Route53UpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${OrgIdentifier}-R53-UpdateRecordOnEC2Event"
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          DefaultTTL: !Ref DefaultTTL
+      Timeout: 10
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+              ec2 = boto3.client('ec2')
+              route53 = boto3.client('route53')
+                          
+              for record in event['detail']['requestParameters']['resourcesSet']['items']:
+                  instance_id = record['resourceId']
+                  instance = ec2.describe_instances(InstanceIds=[instance_id])['Reservations'][0]['Instances'][0]
+                  
+                  tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
+                  if 'Name' not in tags or 'r3_integration' not in tags or tags['r3_integration'].lower() == 'none' or tags['r3_integration'].lower() == '':
+                      continue
+                  
+                  hosted_zone_id = tags['r3_integration']
+                  hosted_zone_domain = route53.get_hosted_zone(Id=hosted_zone_id)["HostedZone"]["Name"]
+                  
+                  instance_name = tags['Name']
+                  primary_ip = instance['PrivateIpAddress']
+                          
+                  change_batch = {
+                          'Changes': [{
+                              'Action': 'UPSERT',
+                              'ResourceRecordSet': {
+                                  'Name': f"{instance_name}.{hosted_zone_domain}",
+                                  'Type': 'A',
+                                  'TTL': int(os.environ.get('DefaultTTL', 300)),
+                                  'ResourceRecords': [{'Value': primary_ip}]
+                              }
+                          }]
+                      }
+                  response = route53.change_resource_record_sets(
+                      HostedZoneId=hosted_zone_id,
+                      ChangeBatch=change_batch
+                  )
+
+                  print(f"Updated DNS record for {instance_name} -> {primary_ip}")
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-R53RecordUpdate"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-R53RecordUpdate-Policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - route53:ChangeResourceRecordSets
+                  - route53:GetHostedZone
+                Resource: '*'
+
+  EventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${OrgIdentifier}-LambdaTrigger-R53RecordUpdate"
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - ec2.amazonaws.com
+          eventName:
+            - CreateTags
+            - DeleteTags
+      Targets:
+        - Arn: !GetAtt Route53UpdateLambda.Arn
+          Id: LambdaTarget
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Route53UpdateLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventBridgeRule.Arn
+
+Outputs:
+  LambdaFunction:
+    Description: Lambda function to update Route 53 records
+    Value: !GetAtt Route53UpdateLambda.Arn
