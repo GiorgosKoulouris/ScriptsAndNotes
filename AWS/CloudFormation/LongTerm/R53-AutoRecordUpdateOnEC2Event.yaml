@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda function to update Route 53 records when EC2 instances have their tags updated.
+
+Parameters:
+  OrgIdentifier:
+    Type: String
+    Description: Identifier to add as a prefix on resources
+    Default: TCOP
+
+  Route53OwnerAccountID:
+    Type: String
+    Description: Account ID that Route53 hosted zone is registered in
+
+  AllowedExternalAccounts:
+    Type: String
+    Description: Comma-separated list of AWS account IDs allowed to assume this role
+    Default: ""
+
+  TagKey:
+    Type: String
+    Description: Tag that will be used for instance filtering
+    Default: r53_integration
+
+  DefaultTTL:
+    Type: Number
+    Description: TTL for the Route53 records created by Lambda
+    Default: 300
+
+Conditions:
+  IsRoute53Owner: 
+    !Equals [!Ref Route53OwnerAccountID, !Sub "${AWS::AccountId}"]
+  IsRoute53External: 
+    !Not [!Equals [!Ref Route53OwnerAccountID, !Sub "${AWS::AccountId}"]]
+  HasExternalAccounts: 
+    !Not [!Equals [!Ref AllowedExternalAccounts, ""]]
+
+  HasExternalAccount1: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [0, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+  HasExternalAccount2: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [1, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+  HasExternalAccount3: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [2, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+  HasExternalAccount4: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [3, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+  HasExternalAccount5: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [4, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]    
+
+Resources:
+  
+  Route53UpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${OrgIdentifier}-R53-UpdateRecordOnEC2Event"
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !If
+        - IsRoute53Owner
+        - !GetAtt LambdaExecutionRoleOwner.Arn
+        - !GetAtt LambdaExecutionRoleExternal.Arn
+      Environment:
+        Variables:
+          DefaultTTL: !Ref DefaultTTL
+          Route53OwnerAccountID: !Ref Route53OwnerAccountID
+          OrgIdentifier: !Ref OrgIdentifier
+      Timeout: 25
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def create_r53_client():
+              sts_client = boto3.client('sts')
+              owner_account_id = os.environ.get('Route53OwnerAccountID', '')
+              current_account_id = boto3.client('sts').get_caller_identity().get('Account')
+              
+              if current_account_id == owner_account_id:
+                  boto_r53_client = boto3.client('route53')
+              else:
+                  org_identifier = os.environ.get('OrgIdentifier', '')
+                  role_arn = f"arn:aws:iam::{owner_account_id}:role/{org_identifier}-SVC-R53RecordUpdate-Owner"
+                          
+                  assumed_role = sts_client.assume_role(
+                      RoleArn=role_arn,
+                      RoleSessionName="CrossAccountRoute53Session"
+                  )
+                  
+                  credentials = assumed_role['Credentials']
+                  boto_r53_client = boto3.client(
+                      'route53',
+                      aws_access_key_id=credentials['AccessKeyId'],
+                      aws_secret_access_key=credentials['SecretAccessKey'],
+                      aws_session_token=credentials['SessionToken']
+                  )
+
+              return boto_r53_client
+
+          def lambda_handler(event, context):
+              ec2 = boto3.client('ec2')
+              route53 = create_r53_client()
+              
+              for record in event['detail']['requestParameters']['resourcesSet']['items']:
+                  instance_id = record['resourceId']
+                  instance = ec2.describe_instances(InstanceIds=[instance_id])['Reservations'][0]['Instances'][0]
+
+                  tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
+                  if 'Name' not in tags or 'r53_integration' not in tags or tags['r53_integration'].lower() in ['none', '']:
+                      continue
+                  
+                  hosted_zone_id = tags['r53_integration']
+                  hosted_zone_domain = route53.get_hosted_zone(Id=hosted_zone_id)["HostedZone"]["Name"]
+                  
+                  instance_name = tags['Name']
+                  primary_ip = instance['PrivateIpAddress']
+                  
+                  change_batch = {
+                      'Changes': [{
+                          'Action': 'UPSERT',
+                          'ResourceRecordSet': {
+                              'Name': f"{instance_name}.{hosted_zone_domain}",
+                              'Type': 'A',
+                              'TTL': int(os.environ.get('DefaultTTL', 300)),
+                              'ResourceRecords': [{'Value': primary_ip}]
+                          }
+                      }]
+                  }
+                  
+                  response = route53.change_resource_record_sets(
+                      HostedZoneId=hosted_zone_id,
+                      ChangeBatch=change_batch
+                  )
+                  print(f"Updated DNS record for {instance_name} -> {primary_ip}")
+
+  LambdaExecutionRoleOwner:
+    Type: AWS::IAM::Role
+    Condition: IsRoute53Owner
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-R53RecordUpdate-Owner"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+          - !If 
+              - HasExternalAccounts
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Principal:
+                  AWS:
+                    - !If
+                      - HasExternalAccount1
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [0, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+                    - !If
+                      - HasExternalAccount2
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [1, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+                    - !If
+                      - HasExternalAccount3
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [2, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+                    - !If
+                      - HasExternalAccount4
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [3, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+                    - !If
+                      - HasExternalAccount5
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [5, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+              - !Ref "AWS::NoValue"
+
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-R53RecordUpdate-Owner-Policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - route53:ChangeResourceRecordSets
+                  - route53:GetHostedZone
+                Resource: '*'
+
+  LambdaExecutionRoleExternal:
+    Type: AWS::IAM::Role
+    Condition: IsRoute53External
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-R53RecordUpdate-External"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-R53RecordUpdate-External-Policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub "arn:aws:iam::${Route53OwnerAccountID}:role/${OrgIdentifier}-SVC-R53RecordUpdate-Owner"
+
+  EventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${OrgIdentifier}-LambdaTrigger-R53RecordUpdate"
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - ec2.amazonaws.com
+          eventName:
+            - CreateTags
+            - DeleteTags
+      Targets:
+        - Arn: !GetAtt Route53UpdateLambda.Arn
+          Id: LambdaTarget
+  
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Route53UpdateLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventBridgeRule.Arn
