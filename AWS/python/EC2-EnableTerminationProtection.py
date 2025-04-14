@@ -1,8 +1,28 @@
 import boto3
+import argparse
 
-def enable_termination_protection():
-    ec2_client = boto3.client('ec2')
+def init_aws_client(region):
+    """Initializes EC2 boto client
+
+    :param region: AWS Region
+    :type region: string
+    :return: EC2 client
+    :rtype: boto_client
+    """
     
+    try:
+        if region:   
+            ec2_client = boto3.client("ec2", region_name=region)
+        else:
+            ec2_client = boto3.client("ec2")
+        print("Successfully created AWS client")
+        return ec2_client
+    except Exception as e:
+        print("Failed to create AWS client")
+        exit(1)
+
+def enable_termination_protection(ec2_client):
+        
     # Get all instances
     instances = ec2_client.describe_instances()
     
@@ -28,4 +48,11 @@ def enable_termination_protection():
                     print(f"Failed to enable termination protection for {name_tag} ({instance_id}): {e}")
 
 if __name__ == "__main__":
-    enable_termination_protection()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--region", type=str, required=False, help="Region Name"
+    )
+    args = parser.parse_args()
+    region = args.region
+    ec2_client = init_aws_client(region)
+    enable_termination_protection(ec2_client)

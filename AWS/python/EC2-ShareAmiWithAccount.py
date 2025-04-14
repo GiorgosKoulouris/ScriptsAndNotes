@@ -1,9 +1,30 @@
 import boto3
 from botocore.exceptions import ClientError
+import argparse
 
+
+def init_aws_client(region):
+    """Initializes EC2 boto client
+
+    :param region: AWS Region
+    :type region: string
+    :return: EC2 client
+    :rtype: boto_client
+    """
+    
+    try:
+        if region:   
+            ec2_client = boto3.client("ec2", region_name=region)
+        else:
+            ec2_client = boto3.client("ec2")
+        print("Successfully created AWS client")
+        return ec2_client
+    except Exception as e:
+        print("Failed to create AWS client")
+        exit(1)
+        
 def copy_ami_with_new_encryption(region, ami_id, new_encryption_key, account_id):
-    # Create an EC2 client in the specified region
-    ec2_client = boto3.client('ec2', region_name=region)
+    ec2_client = init_aws_client(region)
     
     try:
         # Describe the existing AMI to get its details
@@ -60,6 +81,25 @@ if __name__ == "__main__":
     new_encryption_key = input("Enter the new KMS Encryption Key ID: ")
     account_id = input("Enter the AWS Account ID to share the new AMI with: ")
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--region", type=str, required=True, help="Region Name"
+    )
+    parser.add_argument(
+        "--ami-id", type=str, required=True, help="AMI ID to share"
+    )
+    parser.add_argument(
+        "--key-id", type=str, required=True, help="Encryption key used for sharing"
+    )
+    parser.add_argument(
+        "--account-id", type=str, required=True, help="Account ID to share the AMI with"
+    )
+    args = parser.parse_args()
+    region = args.region
+    ami_id = args.ami_id
+    new_encryption_key = args.key_id
+    account_id = args.account_id
+    
     # Call the function to copy the AMI and share it
     new_ami_id = copy_ami_with_new_encryption(region, ami_id, new_encryption_key, account_id)
     if new_ami_id:

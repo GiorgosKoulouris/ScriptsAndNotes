@@ -1,6 +1,26 @@
 import boto3
-import sys
+import argparse
 
+def init_aws_client(region):
+    """Initializes EC2 boto client
+
+    :param region: AWS Region
+    :type region: string
+    :return: EC2 client
+    :rtype: boto_client
+    """
+    
+    try:
+        if region:   
+            ec2_client = boto3.client("ec2", region_name=region)
+        else:
+            ec2_client = boto3.client("ec2")
+        print("Successfully created AWS client")
+        return ec2_client
+    except Exception as e:
+        print("Failed to create AWS client")
+        exit(1)
+        
 def get_ec2_instance_name(instance_id, ec2_client):
     """Retrieve the 'Name' tag of the EC2 instance."""
     try:
@@ -17,15 +37,13 @@ def get_ec2_instance_name(instance_id, ec2_client):
         return None
 
 def main(region):
-    # Initialize boto3 clients
-    ec2_client = boto3.client('ec2', region_name=region)
-
+    ec2_client = init_aws_client(region)
     # Describe all Elastic IPs in the region
     try:
         eips = ec2_client.describe_addresses()
     except Exception as e:
         print(f"Error describing Elastic IPs: {e}")
-        sys.exit(1)
+        exit(1)
 
     # Iterate through each Elastic IP
     for eip in eips.get('Addresses', []):
@@ -53,9 +71,10 @@ def main(region):
             print(f"Tagged EIP {allocation_id} with Name: Unattached")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: python {sys.argv[0]} <region>")
-        sys.exit(1)
-
-    region = sys.argv[1]
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--region", type=str, required=False, help="Region Name"
+    )
+    args = parser.parse_args()
+    region = args.region
     main(region)

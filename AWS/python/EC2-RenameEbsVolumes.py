@@ -1,12 +1,27 @@
 import boto3
 import argparse
-import sys
 
+def init_aws_client(region):
+    """Initializes EC2 boto client
 
-def get_instance_details(region):
-    # Create a boto3 EC2 client for the given region
-    ec2_client = boto3.client("ec2", region_name=region)
+    :param region: AWS Region
+    :type region: string
+    :return: EC2 client
+    :rtype: boto_client
+    """
+    
+    try:
+        if region:   
+            ec2_client = boto3.client("ec2", region_name=region)
+        else:
+            ec2_client = boto3.client("ec2")
+        print("Successfully created AWS client")
+        return ec2_client
+    except Exception as e:
+        print("Failed to create AWS client")
+        exit(1)
 
+def get_instance_details(ec2_client):
     # Describe all instances in the region
     instances = ec2_client.describe_instances()
 
@@ -80,11 +95,10 @@ def rename_volume(volume_id, new_name, ec2_client):
 
 
 def main(region):
-    # Create boto3 EC2 client
-    ec2_client = boto3.client("ec2", region_name=region)
+    ec2_client = init_aws_client(region)
 
     # Get instance and attached volumes info
-    instance_details = get_instance_details(region)
+    instance_details = get_instance_details(ec2_client)
 
     for instance in instance_details:
         instance_name = instance["InstanceName"]
@@ -118,18 +132,12 @@ def main(region):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: python {sys.argv[0]} <region>")
-        sys.exit(1)
-        
-    # Set up argument parser
-    parser = argparse.ArgumentParser(
-        description="Rename EBS volumes attached to EC2 instances"
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--region", type=str, required=False, help="Region Name"
     )
-    parser.add_argument("region", type=str, help="AWS region to operate in")
-
-    # Parse arguments
     args = parser.parse_args()
-
+    region = args.region
+    
     # Run the script with the provided region
     main(args.region)

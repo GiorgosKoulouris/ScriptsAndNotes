@@ -3,7 +3,29 @@ import argparse
 from botocore.exceptions import ClientError
 import sys
 
-def get_eni_attachment_info(eni_id, ec2_client):
+def init_aws_client(region):
+    """Initializes EC2 boto client
+
+    :param region: AWS Region
+    :type region: string
+    :return: EC2 client, EFS client
+    :rtype: boto_client, boto_client
+    """
+    
+    try:
+        if region:   
+            ec2_client = boto3.client("ec2", region_name=region)
+            efs_client = boto3.client("efs", region_name=region)
+        else:
+            ec2_client = boto3.client("ec2")
+            efs_client = boto3.client("efs")
+        print("Successfully created AWS clients")
+        return ec2_client, efs_client
+    except Exception as e:
+        print("Failed to create AWS clients")
+        exit(1)
+        
+def get_eni_attachment_info(eni_id, ec2_client, efs_client):
     """Fetches the attachment information for an ENI (Elastic Network Interface)."""
     try:
         response = ec2_client.describe_network_interfaces(NetworkInterfaceIds=[eni_id])
@@ -12,12 +34,19 @@ def get_eni_attachment_info(eni_id, ec2_client):
         attachment = eni.get('Attachment', {})
         interface_type = eni['InterfaceType']
         
+        
         instance_id = eni.get('Attachment', {}).get('InstanceId', None)
         
         if instance_id:
             return 'EC2', instance_id
         elif interface_type == 'efs':
-            return 'EFS', None
+            efs_id = eni.get('Description', '').split(' ')[4]
+            efs_tags = efs_client.list_tags_for_resource(ResourceId=efs_id)
+            efs_name_tag = 'EFS'
+            for tag in efs_tags.get('Tags', []):
+                if tag['Key'] == 'Name':
+                    efs_name_tag = tag['Value']
+            return 'EFS', efs_name_tag
         else:
             return None, None
     except ClientError as e:
@@ -53,8 +82,7 @@ def add_eni_tag(eni_id, tag_key, tag_value, ec2_client):
 
 def main(region):
     # Initialize AWS clients for the specified region
-    ec2_client = boto3.client('ec2', region_name=region)
-    efs_client = boto3.client('efs', region_name=region)
+    ec2_client, efs_client = init_aws_client(region)
 
     # List all network interfaces in the specified region
     try:
@@ -63,33 +91,34 @@ def main(region):
             eni_id = eni['NetworkInterfaceId']
             
             # Skip ENIs that already have a 'Name' tag
-            existing_tags = eni.get('Tags', [])
-            if any(tag['Key'] == 'Name' for tag in existing_tags):
-                print(f"ENI {eni_id} already has a 'Name' tag, skipping.")
-                continue
-
-            attachment_type, attachment_id = get_eni_attachment_info(eni_id, ec2_client)
-            if attachment_type == 'EC2' and attachment_id:
-                instance_name = get_instance_name(attachment_id, ec2_client)
-                tag_value = f"{instance_name}_ENI"  # Format the name tag value
-                add_eni_tag(eni_id, 'Name', tag_value, ec2_client)
-            elif attachment_type == 'EFS':
-                tag_value = "EFS Mountpoint"  # Format the name tag value
-                add_eni_tag(eni_id, 'Name', tag_value, ec2_client)
+            existing_tags = eni.get('TagSet', [])
+            existing_name_tag = ''
+            for tag in existing_tags:
+                if tag['Key'] == 'Name':
+                    existing_name_tag = tag['Value']
+            if existing_name_tag == '':
+                attachment_type, attachment_id = get_eni_attachment_info(eni_id, ec2_client, efs_client)
+                if attachment_type == 'EC2' and attachment_id:
+                    instance_name = get_instance_name(attachment_id, ec2_client)
+                    tag_value = f"{instance_name}_ENI"  # Format the name tag value
+                    add_eni_tag(eni_id, 'Name', tag_value, ec2_client)
+                elif attachment_type == 'EFS':
+                    tag_value = f"{attachment_id}_EFS_ENI"  # Format the name tag value
+                    add_eni_tag(eni_id, 'Name', tag_value, ec2_client)
+                else:
+                    print(f"ENI {eni_id} is not attached to EC2 or EFS, skipping.")
             else:
-                print(f"ENI {eni_id} is not attached to EC2 or EFS, skipping.")
-    except ClientError as e:
+                print(f"ENI {eni_id} already has a Name tag, skipping ({existing_name_tag}).")
+    except ClientError as e:  
         print(f"Error describing network interfaces: {e}")
 
-if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print(f"Usage: python {sys.argv[0]} <region>")
-        sys.exit(1)
-        
-    # Argument parser to handle the region input
-    parser = argparse.ArgumentParser(description="Add 'Name' tags to ENIs based on their attachment type.")
-    parser.add_argument('region', help="AWS region to scope the ENI renaming to.")
+if __name__ == '__main__':       
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--region", type=str, required=False, help="Region Name"
+    )
     args = parser.parse_args()
+    region = args.region
     
     # Run the main function with the specified region
     main(args.region)
