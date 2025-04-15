@@ -85,64 +85,91 @@ Resources:
                 from datetime import datetime
                 import time
 
+
                 def create_ami(instance_id, reason, days_to_keep):
-                    ec2 = boto3.client('ec2')
+                    ec2 = boto3.client("ec2")
                     instance_desc = ec2.describe_instances(InstanceIds=[instance_id])
                     instance_name = next(
-                        (tag['Value'] for tag in instance_desc['Reservations'][0]['Instances'][0]['Tags'] if tag['Key'] == 'Name'),
-                        'UnnamedInstance'
+                        (
+                            tag["Value"]
+                            for tag in instance_desc["Reservations"][0]["Instances"][0]["Tags"]
+                            if tag["Key"] == "Name"
+                        ),
+                        "UnnamedInstance",
                     )
 
-                    if (instance_name == ''):
-                      instance_name = instance_id
+                    if instance_name == "":
+                        instance_name = instance_id
 
-                    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-                    
+                    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
                     image_nameTag = f"{instance_name}_{reason}"
                     image_name = f"{image_nameTag}_{timestamp}"
                     response = ec2.create_image(InstanceId=instance_id, Name=image_name, NoReboot=True)
-                    image_id = response['ImageId']
+                    image_id = response["ImageId"]
 
-                    ec2.create_tags(Resources=[image_id], Tags=[
-                        {'Key': 'Name', 'Value': image_nameTag},
-                        {'Key': 'ScheduledForDelete', 'Value': 'True'},
-                        {'Key': 'DaysToKeep', 'Value': str(days_to_keep)}
-                    ])
+                    ec2.create_tags(
+                        Resources=[image_id],
+                        Tags=[
+                            {"Key": "Name", "Value": image_nameTag},
+                            {"Key": "ScheduledForDelete", "Value": "True"},
+                            {"Key": "DaysToKeep", "Value": str(days_to_keep)},
+                        ],
+                    )
 
                     return image_id
 
+
                 def tagSnapshots(ami_id, days_to_keep):
-                    ec2 = boto3.client('ec2')
+                    ec2 = boto3.client("ec2")
 
-                    image = ec2.describe_images(ImageIds=[ami_id])['Images'][0]                      
+                    image = ec2.describe_images(ImageIds=[ami_id])["Images"][0]
 
-                    for block_device in image.get('BlockDeviceMappings', []):
-                        if 'Ebs' in block_device:
-                            snapshot_id = block_device['Ebs']['SnapshotId']
-                            
-                            snapshot_id = block_device['Ebs']['SnapshotId']
-                            source_volume_id = ec2.describe_snapshots(SnapshotIds=[snapshot_id])['Snapshots'][0]['VolumeId']
-                            source_volume_tags = ec2.describe_volumes(VolumeIds=[source_volume_id])['Volumes'][0]['Tags']
+                    for block_device in image.get("BlockDeviceMappings", []):
+                        if "Ebs" in block_device:
+                            snapshot_id = block_device["Ebs"]["SnapshotId"]
+
+                            snapshot_id = block_device["Ebs"]["SnapshotId"]
+                            source_volume_id = ec2.describe_snapshots(SnapshotIds=[snapshot_id])[
+                                "Snapshots"
+                            ][0]["VolumeId"]
+                            source_volume_tags = ec2.describe_volumes(VolumeIds=[source_volume_id])[
+                                "Volumes"
+                            ][0].get("Tags", [])
+                            source_volume_name = None
                             for tag in source_volume_tags:
                                 if tag["Key"] == "Name":
                                     source_volume_name = tag["Value"]
 
-                            ec2.create_tags(Resources=[snapshot_id], Tags=[
-                                {'Key': 'Name', 'Value': source_volume_name},
-                                {'Key': 'ScheduledForDelete', 'Value': 'True'},
-                                {'Key': 'DaysToKeep', 'Value': str(days_to_keep)}
-                            ])
-                                        
+                            if source_volume_name != None:
+                                ec2.create_tags(
+                                    Resources=[snapshot_id],
+                                    Tags=[
+                                        {"Key": "Name", "Value": source_volume_name},
+                                        {"Key": "ScheduledForDelete", "Value": "True"},
+                                        {"Key": "DaysToKeep", "Value": str(days_to_keep)},
+                                    ],
+                                )
+                            else:
+                                ec2.create_tags(
+                                    Resources=[snapshot_id],
+                                    Tags=[
+                                        {"Key": "ScheduledForDelete", "Value": "True"},
+                                        {"Key": "DaysToKeep", "Value": str(days_to_keep)},
+                                    ],
+                                )
                     return
 
+
                 def main(event, context):
-                    instance_id = event['InstanceID']
-                    reason = event['Reason']
-                    days_to_keep = str(event['DaysToKeep'])
+                    instance_id = event["InstanceID"]
+                    reason = event["Reason"]
+                    days_to_keep = str(event["DaysToKeep"])
                     image_id = create_ami(instance_id, reason, days_to_keep)
                     time.sleep(15)
                     tagSnapshots(image_id, days_to_keep)
-                    return {'AMI_ID': image_id}
+                    return {"AMI_ID": image_id}
+
             outputs:
               - Name: CreatedAMI
                 Selector: $.Payload.AMI_ID
