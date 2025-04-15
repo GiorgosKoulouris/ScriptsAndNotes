@@ -26,12 +26,14 @@ script_log() {
 }
 
 backup_file() {
-    current_time=$(date +"%Y-%m-%d")
+    current_time=$(date +"%Y%m%d_%H%M%s")
     backup_file_path="$1.$current_time.bak"
-    [ -f "$1" ] && {
+    if [ -f "$1" ]; then
         cp "$1" "$backup_file_path"
         script_log INF "Created backup file: $backup_file_path"
-    } || script_log INF "File not found ($1). Skipping backup creation"
+    else
+        script_log INF "File not found ($1). Skipping backup creation"
+    fi
 }
 
 init_vars() {
@@ -448,7 +450,8 @@ apply_changes_dhclient() {
                 sed -i '/^[^#].* domain-name-servers /s/^/#/' $file
             else
                 script_log INF "Modifying DNS server configurations in $file"
-                sed -i "/^.* domain-name-servers /c\supersede domain-name-servers \"$dns_servers\";" $file
+                new_dns_servers="$(echo $dns_servers | sed 's/ /,/g')"
+                sed -i "/^.* domain-name-servers /c\supersede domain-name-servers $new_dns_servers;" $file
             fi
 
             if [ "$search_domains" == "useDHCP" ]; then
@@ -456,24 +459,34 @@ apply_changes_dhclient() {
                 sed -i '/^[^#].* domain-name /s/^/#/' $file
             else
                 script_log INF "Modifying search domain configurations in $file"
-                sed -i "/^.* domain-name /c\supersede domain-name \"$search_domains\";" $file
+                sed -i "/^.* domain-name /c\append domain-name \" $search_domains\";" $file
             fi
         done <<<$files
-        script_log INF "Restarting dhclient with the new configuration"
-        dhclient -r
-        dhclient
+        script_log INF "Restarting network with the new configuration"
+        if [ $is_systemd ]; then
+            systemctl restart network
+        else
+            service network restart >/dev/null 2>&1
+        fi
+
     else
         if [[ "$dns_servers" != "useDHCP" || "$search_domains" != "useDHCP" ]]; then
             DHCLIENT_CONF=/etc/dhcp/dhclient.conf
             script_log INF "Adding DNS configuration in $DHCLIENT_CONF"
             backup_file $DHCLIENT_CONF
 
-            [ "$dns_servers" != "useDHCP" ] && echo "supersede domain-name-servers \"$dns_servers\";" >>$DHCLIENT_CONF
-            [ "$search_domains" != "useDHCP" ] && echo "supersede domain-name \"$search_domains\";" >>$DHCLIENT_CONF
+            [ "$dns_servers" != "useDHCP" ] && {
+                new_dns_servers="$(echo $dns_servers | sed 's/ /,/g')"
+                echo "supersede domain-name-servers $new_dns_servers;" >>$DHCLIENT_CONF
+            }
+            [ "$search_domains" != "useDHCP" ] && echo "append domain-name \" $search_domains\";" >>$DHCLIENT_CONF
 
-            script_log INF "Restarting dhclient with the new configuration"
-            dhclient -r
-            dhclient
+            script_log INF "Restarting network with the new configuration"
+            if [ $is_systemd ]; then
+                systemctl restart network
+            else
+                service network restart >/dev/null 2>&1
+            fi
         fi
     fi
 }
@@ -481,15 +494,15 @@ apply_changes_dhclient() {
 ip_to_int() {
     local IFS=.
     local ip=($1)
-    echo $(( (${ip[0]} << 24) + (${ip[1]} << 16) + (${ip[2]} << 8) + ${ip[3]} ))
+    echo $(((${ip[0]} << 24) + (${ip[1]} << 16) + (${ip[2]} << 8) + ${ip[3]}))
 }
 
 int_to_ip() {
     local ip
-    ip[0]=$(( ($1 >> 24) & 255 ))
-    ip[1]=$(( ($1 >> 16) & 255 ))
-    ip[2]=$(( ($1 >> 8) & 255 ))
-    ip[3]=$(( $1 & 255 ))
+    ip[0]=$((($1 >> 24) & 255))
+    ip[1]=$((($1 >> 16) & 255))
+    ip[2]=$((($1 >> 8) & 255))
+    ip[3]=$(($1 & 255))
     echo "${ip[0]}.${ip[1]}.${ip[2]}.${ip[3]}"
 }
 
@@ -504,12 +517,12 @@ comment_hosts_file() {
         backup_file $HOSTFILE
 
         # Parse the network range
-        IFS='/' read -r network_address subnet_mask <<< "$cidr_to_comment"
+        IFS='/' read -r network_address subnet_mask <<<"$cidr_to_comment"
 
         # Calculate the start and end IP addresses
         local start=$(ip_to_int "$network_address")
-        local mask=$(( 0xffffffff << (32 - subnet_mask) ))
-        local end=$(( start | ~mask & 0xffffffff ))
+        local mask=$((0xffffffff << (32 - subnet_mask)))
+        local end=$((start | ~mask & 0xffffffff))
 
         script_log "INF" "Commenting out entries in $HOSTFILE for the network range: $cidr_to_comment"
 
@@ -518,12 +531,12 @@ comment_hosts_file() {
             if [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
                 ip=$(echo "$line" | awk '{print $1}')
                 ip_val=$(ip_to_int "$ip")
-                if (( ip_val >= start && ip_val <= end )); then
+                if ((ip_val >= start && ip_val <= end)); then
                     sed -i "s/^$line/# $line/" $HOSTFILE
                     script_log "INF" "Commented out: $line"
                 fi
             fi
-        done < $HOSTFILE
+        done <$HOSTFILE
     fi
 }
 
