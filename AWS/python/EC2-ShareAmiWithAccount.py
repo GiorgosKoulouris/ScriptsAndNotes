@@ -1,3 +1,6 @@
+# On the source account/region execute:
+# nohup python EC2-ShareAmiWithAccount.py --region currentRegion --ami-id sourceAMI --key-id kmsID --account-id targetAccountID >> ./ShareAmiWithAccount.log &
+
 import boto3
 from botocore.exceptions import ClientError
 import argparse
@@ -53,7 +56,13 @@ def copy_ami_with_new_encryption(region, ami_id, new_encryption_key, account_id)
         # Wait for the AMI to become available
         print(f"Waiting for the new AMI {new_ami_id} to become available...")
         waiter = ec2_client.get_waiter('image_available')
-        waiter.wait(ImageIds=[new_ami_id])
+        waiter.wait(
+            ImageIds=[new_ami_id],
+            WaiterConfig={
+                'Delay': 90,
+                'MaxAttempts': 120
+            }
+        )
         print(f"New AMI {new_ami_id} is now available")
 
         # Share the new AMI with the provided AWS account ID
@@ -75,12 +84,6 @@ def copy_ami_with_new_encryption(region, ami_id, new_encryption_key, account_id)
     return new_ami_id
 
 if __name__ == "__main__":
-    # User input
-    region = input("Enter AWS region: ")
-    ami_id = input("Enter the AMI ID to copy: ")
-    new_encryption_key = input("Enter the new KMS Encryption Key ID: ")
-    account_id = input("Enter the AWS Account ID to share the new AMI with: ")
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--region", type=str, required=True, help="Region Name"
