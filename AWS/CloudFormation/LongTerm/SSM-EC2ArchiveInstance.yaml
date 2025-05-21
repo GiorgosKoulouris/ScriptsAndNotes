@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "SSM Automation Runbook to archive instance to S3"
+
+Parameters:
+  OrgIdentifier:
+    Type: String
+    Description: Identifier to add as a prefix on resources
+    Default: TCOP
+
+Resources:
+  ArchiveInstanceDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Name: !Sub "${OrgIdentifier}-EC2-ArchiveInstance"
+      Content: |
+        schemaVersion: '0.3'
+        description: Creates an AMI for a selected EC2 instance and stores it to S3
+        parameters:
+          Reason:
+            type: String
+            description: Task reason
+          BucketName:
+            type: String
+            description: Name of the S3 bucket
+          InstanceId:
+            type: AWS::EC2::Instance::Id
+            description: Instance to archive
+        variables:
+          Reason:
+            type: String
+            default: '{{ Reason }}'
+          BucketName:
+            type: String
+            default: '{{ BucketName }}'
+        mainSteps:
+          - name: GetInstanceNameTag
+            action: aws:executeAwsApi
+            nextStep: CreateAMI
+            isEnd: false
+            inputs:
+              Service: ec2
+              Api: DescribeInstances
+              InstanceIds:
+                - '{{ InstanceId }}'
+            outputs:
+              - Name: InstanceName
+                Selector: $.Reservations[0].Instances[0].Tags[?(@.Key=='Name')].Value
+                Type: String
+          - name: CreateAMI
+            action: aws:createImage
+            nextStep: StoreAMI
+            isEnd: false
+            inputs:
+              InstanceId: '{{ InstanceId }}'
+              NoReboot: true
+              ImageName: '{{ GetInstanceNameTag.InstanceName }}_{{ Reason }}_{{ global:DATE_TIME }}'
+          - name: StoreAMI
+            action: aws:executeAwsApi
+            isEnd: true
+            inputs:
+              Service: ec2
+              Api: CreateStoreImageTask
+              ImageId: '{{ CreateAMI.ImageId }}'
+              Bucket: '{{ BucketName }}'
+              S3ObjectTags:
+                - Key: ami_name
+                  Value: '{{ GetInstanceNameTag.InstanceName }}_{{ Reason }}_{{ global:DATE_TIME }}'
+                - Key: instance_name
+                  Value: '{{ GetInstanceNameTag.InstanceName }}'
+        outputs:
+          - CreateAMI.ImageId

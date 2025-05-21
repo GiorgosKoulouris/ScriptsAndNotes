@@ -1,32 +1,56 @@
 schemaVersion: '0.3'
-description: Creates an AMI and then terminates the instance
+description: Creates an AMI for a selected EC2 instance and stores it to S3
 parameters:
-  Activity:
+  Reason:
     type: String
-  InstanceID:
+    description: Task reason
+  BucketName:
     type: String
+    description: Name of the S3 bucket
+  InstanceId:
+    type: AWS::EC2::Instance::Id
+    description: Instance to archive
 variables:
-  Date:
+  Reason:
     type: String
-    default: '{{ global:DATE }}'
-  Activity:
+    default: '{{ Reason }}'
+  BucketName:
     type: String
-    default: '{{ Activity }}'
+    default: '{{ BucketName }}'
 mainSteps:
+  - name: GetInstanceNameTag
+    action: aws:executeAwsApi
+    nextStep: CreateAMI
+    isEnd: false
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      InstanceIds:
+        - '{{ InstanceId }}'
+    outputs:
+      - Name: InstanceName
+        Selector: $.Reservations[0].Instances[0].Tags[?(@.Key=='Name')].Value
+        Type: String
   - name: CreateAMI
     action: aws:createImage
-    nextStep: TerminateInstances
+    nextStep: StoreAMI
     isEnd: false
-    onCancel: Abort
-    onFailure: Abort
     inputs:
-      ImageName: '{{ InstanceID }}_{{ Activity }}_{{global:DATE }}'
-      InstanceId: '{{ InstanceID }}'
-  - name: TerminateInstances
+      InstanceId: '{{ InstanceId }}'
+      NoReboot: true
+      ImageName: '{{ GetInstanceNameTag.InstanceName }}_{{ Reason }}_{{ global:DATE_TIME }}'
+  - name: StoreAMI
     action: aws:executeAwsApi
     isEnd: true
     inputs:
       Service: ec2
-      Api: TerminateInstances
-      InstanceIds:
-        - '{{ InstanceID }}'
+      Api: CreateStoreImageTask
+      ImageId: '{{ CreateAMI.ImageId }}'
+      Bucket: '{{ BucketName }}'
+      S3ObjectTags:
+        - Key: ami_name
+          Value: '{{ GetInstanceNameTag.InstanceName }}_{{ Reason }}_{{ global:DATE_TIME }}'
+        - Key: instance_name
+          Value: '{{ GetInstanceNameTag.InstanceName }}'
+outputs:
+  - CreateAMI.ImageId
