@@ -36,19 +36,25 @@ Conditions:
 
   HasExternalAccount1: !And 
     - !Condition HasExternalAccounts
-    - !Not [!Equals [!Select [0, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+    - !Not [!Equals [!Select [0, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]
   HasExternalAccount2: !And 
     - !Condition HasExternalAccounts
-    - !Not [!Equals [!Select [1, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+    - !Not [!Equals [!Select [1, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]
   HasExternalAccount3: !And 
     - !Condition HasExternalAccounts
-    - !Not [!Equals [!Select [2, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+    - !Not [!Equals [!Select [2, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]
   HasExternalAccount4: !And 
     - !Condition HasExternalAccounts
-    - !Not [!Equals [!Select [3, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]
+    - !Not [!Equals [!Select [3, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]
   HasExternalAccount5: !And 
     - !Condition HasExternalAccounts
-    - !Not [!Equals [!Select [4, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_"]], "_"]]    
+    - !Not [!Equals [!Select [4, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]    
+  HasExternalAccount6: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [5, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]    
+  HasExternalAccount7: !And 
+    - !Condition HasExternalAccounts
+    - !Not [!Equals [!Select [6, !Split [",", !Sub "${AllowedExternalAccounts},_,_,_,_,_,_"]], "_"]]   
 
 Resources:
   
@@ -56,7 +62,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "${OrgIdentifier}-R53-UpdateRecordOnEC2Event"
-      Runtime: python3.9
+      Runtime: python3.11
       Handler: index.lambda_handler
       Role: !If
         - IsRoute53Owner
@@ -182,8 +188,21 @@ Resources:
                       - HasExternalAccount5
                       - !Sub
                         - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [4, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+                    - !If
+                      - HasExternalAccount6
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
                         - { ExtAccount: !Select [5, !Split [",", !Ref AllowedExternalAccounts]] }
                       - !Ref "AWS::NoValue"
+                    - !If
+                      - HasExternalAccount7
+                      - !Sub
+                        - "arn:aws:iam::${ExtAccount}:role/${OrgIdentifier}-SVC-R53RecordUpdate-External"
+                        - { ExtAccount: !Select [6, !Split [",", !Ref AllowedExternalAccounts]] }
+                      - !Ref "AWS::NoValue"
+
               - !Ref "AWS::NoValue"
 
       Policies:
