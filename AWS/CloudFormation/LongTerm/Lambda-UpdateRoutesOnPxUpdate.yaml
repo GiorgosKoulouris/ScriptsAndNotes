@@ -40,7 +40,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "${OrgIdentifier}-UpdateRoutes-On-PeeringUpdate"
-      Runtime: python3.9
+      Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30

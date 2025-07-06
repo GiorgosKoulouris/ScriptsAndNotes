@@ -129,13 +129,14 @@ Resources:
                         if "Ebs" in block_device:
                             snapshot_id = block_device["Ebs"]["SnapshotId"]
 
-                            snapshot_id = block_device["Ebs"]["SnapshotId"]
                             source_volume_id = ec2.describe_snapshots(SnapshotIds=[snapshot_id])[
                                 "Snapshots"
                             ][0]["VolumeId"]
+
                             source_volume_tags = ec2.describe_volumes(VolumeIds=[source_volume_id])[
                                 "Volumes"
                             ][0].get("Tags", [])
+                            
                             source_volume_name = None
                             for tag in source_volume_tags:
                                 if tag["Key"] == "Name":
