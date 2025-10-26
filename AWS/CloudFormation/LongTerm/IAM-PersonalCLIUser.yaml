@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Provision personal CLI-only access user
+
+Parameters:
+  OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+
+  Username:
+    Type: String
+    Description: Short form username for the user
+Resources:
+
+  CLIOnlyUserGeorge:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub "${OrgIdentifier}-USR-${Username}"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-USR-${Username}-Denies"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: "Deny"
+                Action:
+                  - "iam:*"
+                  - "sso:*"
+                  - "identitystore:*"
+                  - "organizations:*"
+                  - "billing:*"
+                  - "payment-method:*"
+                  - "sts:AssumeRole"
+                  - "sts:SetDefaultPolicyVersion"
+                  - "cloudformation:CreateStackSet"
+                  - "cloudformation:UpdateStackSet"
+                  - "cloudformation:DeleteStackSet"
+                  - "support:*"
+                  - "kms:CreateKey"
+                  - "kms:ScheduleKeyDeletion"
+                Resource: "*"
+
+      LoginProfile: !Ref AWS::NoValue  # No console access

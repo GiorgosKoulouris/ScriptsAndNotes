@@ -3,9 +3,9 @@ Description: CloudFormation stack for creating AWS backups, with backup vault an
 
 Parameters:
   OrgIdentifier:
-    Type: String
-    Default: TCOP
-    Description: Identifier used for naming resources
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
 
   TagKey:
     Type: String

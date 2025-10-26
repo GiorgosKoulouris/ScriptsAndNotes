@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Provision basic roles for service operations
+
+Parameters:
+  OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+  TcopElasticUserARN:
+    Type: String
+    Default: arn:aws:iam::891377077020:user/TCOP-SVC-DCKR-STUT
+    Description: ARN of the user to allow to assume the role for elastic discovery
+  RetentionPolicy:
+    Type: String
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
+
+Resources:
+
+  EC2SsmRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-EC2-SsmManagedRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+              - arn:aws:iam::aws:policy/AmazonSSMManagedEC2InstanceDefaultPolicy
+
+  EC2SsmRoleProfile:
+      Type: AWS::IAM::InstanceProfile
+      DeletionPolicy: !Ref RetentionPolicy
+      Properties:
+        InstanceProfileName: !Sub "${OrgIdentifier}-EC2-SsmManagedProfile"
+        Roles:
+          - !Ref EC2SsmRole
+
+  VpcFlowLogsRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-VpcFlowLogsRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Sub "${AWS::AccountId}"
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-VpcFlowLogsRole-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+
+  ElasticSearchRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-ElasticSearchRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::891377077020:user/TCOP-SVC-DCKR-STUT
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+              - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+              - arn:aws:iam::aws:policy/AmazonVPCReadOnlyAccess
+

@@ -3,13 +3,19 @@ Description: "SSM Automation Runbook to archive instance to S3"
 
 Parameters:
   OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+  RetentionPolicy:
     Type: String
-    Description: Identifier to add as a prefix on resources
-    Default: TCOP
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
 
 Resources:
   ArchiveInstanceDocument:
     Type: AWS::SSM::Document
+    DeletionPolicy: !Ref RetentionPolicy
     Properties:
       DocumentType: Automation
       DocumentFormat: YAML

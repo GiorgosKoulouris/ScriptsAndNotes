@@ -3,9 +3,9 @@ Description: "Creates a SAML Identity Provider and basic roles across all AWS Or
 
 Parameters:
   OrgIdentifier:
-    Type: String
-    Description: Identifier to add as a prefix on roles and policies
-    Default: TCOP
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
   IdpName:
     Type: String
     Description: "The name of the SAML Identity Provider"
@@ -66,12 +66,12 @@ Resources:
                     - "config:*"
                     - "ec2:*"
                     - "ecr:*"
+                    - "ecs:*"
                     - "ecr-public:*"                    
                     - "eks:*"
                     - "elasticfilesystem:*"
                     - "elasticloadbalancing:*"
                     - "kms:*"
-                    - "lambda:*"
                     - "lambda:*"
                     - "logs:*"
                     - "route53:*"
@@ -137,6 +137,9 @@ Resources:
                     - "ecr:Get*"
                     - "ecr:List*"
                     - "ecr:Describe*"
+                    - "ecs:Get*"
+                    - "ecs:List*"
+                    - "ecs:Describe*"
                     - "ecr-public:Get*"
                     - "ecr-public:List*"
                     - "ecr-public:Describe*"                    

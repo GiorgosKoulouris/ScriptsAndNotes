@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lambda function to start/stop EC2 instances on demand.
+
+Parameters:
+  OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+  RetentionPolicy:
+    Type: String
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-LambdaStopStartEC2"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${OrgIdentifier}-SVC-LambdaStopStartEC2-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                  - ec2:DescribeInstances
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  StopStartEC2Lambda:
+    Type: AWS::Lambda::Function
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      FunctionName: !Sub "${OrgIdentifier}-StopStartEC2"
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+
+          ec2 = boto3.client('ec2')
+
+          def lambda_handler(event, context):
+              action = event.get('action')
+              instance_ids = event.get('instance_ids')
+
+              if not instance_ids or action not in ['start', 'stop']:
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps('Invalid input: Provide action "start" or "stop" and instance_ids list')
+                  }
+
+              try:
+                  if action == 'start':
+                      ec2.start_instances(InstanceIds=instance_ids)
+                      message = f'Started instances: {instance_ids}'
+                  elif action == 'stop':
+                      ec2.stop_instances(InstanceIds=instance_ids)
+                      message = f'Stopped instances: {instance_ids}'
+
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps(message)
+                  }
+
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f'Error: {str(e)}')
+                  }
+
+
+Outputs:
+  LambdaFunctionArn:
+    Description: "ARN of the deployed Lambda function"
+    Value: !GetAtt StopStartEC2Lambda.Arn
+    Export:
+      Name: LambdaFunctionArn

@@ -3,9 +3,9 @@ Description: Lambda function to update Route 53 records when EC2 instances have 
 
 Parameters:
   OrgIdentifier:
-    Type: String
-    Description: Identifier to add as a prefix on resources
-    Default: TCOP
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
 
   Route53OwnerAccountID:
     Type: String

@@ -3,13 +3,20 @@ Description: "Deploys a Lambda function to update VPC peering routes."
 
 Parameters:
   OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+
+  RetentionPolicy:
     Type: String
-    Description: Identifier to add as a prefix on resources
-    Default: TCOP
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
 
 Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
     Properties:
       RoleName: !Sub "${OrgIdentifier}-SVC-LambdaRouteModifier"
       AssumeRolePolicyDocument:
@@ -38,6 +45,7 @@ Resources:
 
   RouteUpdateLambda:
     Type: AWS::Lambda::Function
+    DeletionPolicy: !Ref RetentionPolicy
     Properties:
       FunctionName: !Sub "${OrgIdentifier}-UpdateRoutes-On-PeeringUpdate"
       Runtime: python3.11

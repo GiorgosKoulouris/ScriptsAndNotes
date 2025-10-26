@@ -3,13 +3,19 @@ Description: 'SSM Automation Runbook for AMI creation and a lambda to periodical
 
 Parameters:
   OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+  RetentionPolicy:
     Type: String
-    Description: Identifier to add as a prefix on resources
-    Default: TCOP
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
 
 Resources:
   EC2SnapshotsRole:
       Type: AWS::IAM::Role
+      DeletionPolicy: !Ref RetentionPolicy
       Properties:
         RoleName: !Sub "${OrgIdentifier}-SVC-EC2Snapshots"
         AssumeRolePolicyDocument:
@@ -50,6 +56,7 @@ Resources:
 
   SsmAutomationDocument:
     Type: AWS::SSM::Document
+    DeletionPolicy: !Ref RetentionPolicy
     Properties:
       DocumentType: Automation
       Name: !Sub "${OrgIdentifier}-EC2-AdHocSnapshots"
@@ -178,6 +185,7 @@ Resources:
 
   AmiCleanupLambda:
       Type: AWS::Lambda::Function
+      DeletionPolicy: !Ref RetentionPolicy
       Properties:
         FunctionName: !Sub "${OrgIdentifier}-EC2Snapshots-Cleanup"
         Runtime: python3.11
@@ -237,6 +245,7 @@ Resources:
 
   PeriodicTrigger:
     Type: AWS::Events::Rule
+    DeletionPolicy: !Ref RetentionPolicy
     Properties:
       Name: !Sub "${OrgIdentifier}-LambdaTrigger-EC2SnapshotsCleanup"
       ScheduleExpression: "rate(1 day)"
@@ -247,6 +256,7 @@ Resources:
 
   PermissionForEventToInvokeLambda:
     Type: AWS::Lambda::Permission
+    DeletionPolicy: !Ref RetentionPolicy
     Properties:
       Action: "lambda:InvokeFunction"
       FunctionName: !Ref AmiCleanupLambda

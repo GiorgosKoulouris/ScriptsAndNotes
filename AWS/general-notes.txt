@@ -1,0 +1,3 @@
+Oracle Linux public AMI owner account: 131827586825
+OL9.3-x86_64-HVM-2024-02-02 - ami-08b280891de0645a1 (Frankfurt)
+OL8.9-x86_64-HVM-2024-02-02 - ami-0f18276190490b6e3 (Frankfurt)
