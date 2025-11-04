@@ -1,0 +1,451 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation stack for creating AWS backups, with backup vault and two plans based on tags.
+
+Parameters:
+  OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+
+  TagKey:
+    Type: String
+    Description: Tag that will be used for instance filtering
+    Default: backup_plan
+
+  ProdTagValue:
+    Type: String
+    Description: Tag value that prod instances have
+    Default: prd
+
+  NonProdTagValue:
+    Type: String
+    Description: Tag value that non-prod instances have
+    Default: nprd
+
+  ProdRateHours:
+    Type: Number
+    Description: "Interval for Prod backups in hours"
+    MinValue: 1
+    MaxValue: 24
+    Default: 4
+
+  ProdRetentionDays:
+    Type: Number
+    Description: "Retention for Prod backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 7
+
+  NonProdRateDays:
+    Type: Number
+    Description: "Interval for Non-Prod backups in days"
+    MinValue: 1
+    MaxValue: 7
+    Default: 2
+
+  NonProdRetentionDays:
+    Type: Number
+    Description: "Retention for Non-Prod backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 7
+
+  KmsID:
+    Type: String
+    Description: >-
+      KMS key ID (not ARN) for backup encryption. Use "default" to use AWS-managed alias/aws/backup.
+    Default: "default"
+
+  CopyToVaultARN:
+    Type: String
+    Description: >-
+      ARN of the vault to copy backups to. Use "none" to disable copy.
+    Default: "none"
+
+  RetentionPolicy:
+    Type: String
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
+
+Conditions:
+  UseCustomKms: !Not [!Equals [!Ref KmsID, "default"]]
+  EnableBackupCopy: !Not [!Equals [!Ref CopyToVaultARN, "none"]]
+
+Resources:
+  BackupVaultScheduled:
+    Type: AWS::Backup::BackupVault
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      BackupVaultName: !Sub "${OrgIdentifier}-Scheduled-Vault"
+      EncryptionKeyArn: !If
+        - UseCustomKms
+        - !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsID}"
+        - !Ref "AWS::NoValue"
+
+  BackupVaultAdHoc:
+    Type: AWS::Backup::BackupVault
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      BackupVaultName: !Sub "${OrgIdentifier}-AdHoc-Vault"
+
+  BackupExecutionRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-AwsBackup"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - backup.amazonaws.com
+                - ssm.amazonaws.com
+            Action: sts:AssumeRole
+
+  BackupExecutionPolicyAdhoc:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackup-AdHoc"
+      Roles: 
+        - !Ref BackupExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TriggerBackups
+            Effect: Allow
+            Action:
+              - backup:StartBackupJob
+            Resource: "*"
+
+  BackupExecutionPolicyEC2:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackup-EC2"
+      Roles: 
+        - !Ref BackupExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EBSCopyPermissions
+            Effect: Allow
+            Action:
+              - ec2:CopySnapshot
+            Resource: arn:aws:ec2:*::snapshot/*
+          - Sid: EC2CopyPermissions
+            Effect: Allow
+            Action:
+              - ec2:CopyImage
+            Resource: "*"
+          - Sid: EBSTagAndDeletePermissions
+            Effect: Allow
+            Action:
+              - ec2:CreateTags
+              - ec2:DeleteSnapshot
+            Resource: arn:aws:ec2:*::snapshot/*
+          - Sid: EC2Permissions
+            Effect: Allow
+            Action:
+              - ec2:CreateImage
+              - ec2:DeregisterImage
+              - ec2:DescribeSnapshots
+              - ec2:DescribeTags
+              - ec2:DescribeImages
+              - ec2:DescribeInstances
+              - ec2:DescribeInstanceAttribute
+              - ec2:DescribeInstanceCreditSpecifications
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DescribeElasticGpus
+              - ec2:DescribeSpotInstanceRequests
+              - ec2:DescribeSnapshotTierStatus
+            Resource: "*"
+          - Sid: EC2TagPermissions
+            Effect: Allow
+            Action:
+              - ec2:CreateTags
+            Resource: arn:aws:ec2:*:*:image/*
+          - Sid: EC2ModifyPermissions
+            Effect: Allow
+            Action:
+              - ec2:ModifySnapshotAttribute
+              - ec2:ModifyImageAttribute
+            Resource: "*"
+            Condition:
+              'Null':
+                aws:ResourceTag/aws:backup:source-resource: 'false'
+          - Sid: EBSSnapshotTierPermissions
+            Effect: Allow
+            Action:
+              - ec2:ModifySnapshotTier
+            Resource: arn:aws:ec2:*::snapshot/*
+            Condition:
+              'Null':
+                aws:ResourceTag/aws:backup:source-resource: 'false'
+          - Sid: BackupVaultPermissions
+            Effect: Allow
+            Action:
+              - backup:DescribeBackupVault
+              - backup:CopyIntoBackupVault
+            Resource: arn:aws:backup:*:*:backup-vault:*
+          - Sid: BackupVaultCopyPermissions
+            Effect: Allow
+            Action:
+              - backup:CopyFromBackupVault
+            Resource: "*"
+          - Sid: EBSResourcePermissions
+            Effect: Allow
+            Action:
+              - ec2:CreateSnapshot
+              - ec2:DeleteSnapshot
+              - ec2:DescribeVolumes
+              - ec2:DescribeSnapshots
+            Resource:
+              - arn:aws:ec2:*::snapshot/*
+              - arn:aws:ec2:*:*:volume/*
+          - Sid: KMSPermissions
+            Effect: Allow
+            Action:
+              - kms:DescribeKey
+            Resource: !If [UseCustomKms, !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsID}", "*"]
+          - Sid: KMSCreateGrantPermissions
+            Effect: Allow
+            Action: kms:CreateGrant
+            Resource: !If [UseCustomKms, !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsID}", "*"]
+            Condition:
+              Bool:
+                kms:GrantIsForAWSResource: 'true'
+          - Sid: KMSDataKeyEC2Permissions
+            Effect: Allow
+            Action:
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: !If [UseCustomKms, !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsID}", !Sub "arn:${AWS::Partition}:kms:*:*:key/*"]
+            Condition:
+              StringLike:
+                kms:ViaService:
+                  - ec2.*.amazonaws.com
+          - Sid: GetResourcesPermissions
+            Effect: Allow
+            Action:
+              - tag:GetResources
+            Resource: "*"
+          - Sid: SSMPermissions
+            Effect: Allow
+            Action:
+              - ssm:CancelCommand
+              - ssm:GetCommandInvocation
+            Resource: "*"
+          - Sid: SSMSendPermissions
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - arn:aws:ssm:*:*:document/AWSEC2-CreateVssSnapshot
+              - arn:aws:ec2:*:*:instance/*
+          - Sid: RecoveryPointTaggingPermissions
+            Effect: Allow
+            Action:
+              - backup:TagResource
+            Resource: arn:aws:backup:*:*:recovery-point:*
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: "${aws:ResourceAccount}"
+  
+  BackupExecutionPolicyEFS:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackup-EFS"
+      Roles: 
+        - !Ref BackupExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EFSPermissions
+            Effect: Allow
+            Action:
+              - elasticfilesystem:Backup
+              - elasticfilesystem:DescribeTags
+            Resource: "*"
+          - Sid: BackupVaultPermissions
+            Effect: Allow
+            Action:
+              - backup:DescribeBackupVault
+              - backup:CopyIntoBackupVault
+              - backup:CopyFromBackupVault
+            Resource: arn:aws:backup:*:*:backup-vault:*
+          - Sid: KMSPermissions
+            Effect: Allow
+            Action: kms:DescribeKey
+            Resource: "*"
+          - Sid: RecoveryPointTaggingPermissions
+            Effect: Allow
+            Action: backup:TagResource
+            Resource: arn:aws:backup:*:*:recovery-point:*
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: "${aws:ResourceAccount}"
+          - Sid: KMSCreateGrantPermissions
+            Effect: Allow
+            Action: kms:CreateGrant
+            Resource: "*"
+            Condition:
+              Bool:
+                kms:GrantIsForAWSResource: 'true'
+          - Sid: GetResourcesPermissions
+            Effect: Allow
+            Action:
+            - tag:GetResources
+            Resource: "*"
+            
+  BackupExecutionCopyPolicy:
+    Type: AWS::IAM::Policy
+    DeletionPolicy: !Ref RetentionPolicy
+    Condition: EnableBackupCopy
+    Properties:
+      PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackupEC2-PolicyForCopy"
+      Roles:
+        - !Ref BackupExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowBackupCopy
+            Effect: Allow
+            Action:
+              - backup:CopyFromBackupVault
+              - backup:CopyIntoBackupVault
+              - backup:DescribeBackupVault
+              - backup:GetRecoveryPointRestoreMetadata
+              - backup:StartCopyJob
+              - backup:DescribeRecoveryPoint
+              - backup:ListRecoveryPointsByBackupVault
+            Resource: "*"
+          - Sid: KmsPermissions
+            Effect: Allow
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource:
+              !If [
+                UseCustomKms,
+                !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsID}",
+                "*",
+              ]
+          - Sid: KmsCreateGrantPermissions
+            Effect: Allow
+            Action: kms:CreateGrant
+            Resource:
+              !If [
+                UseCustomKms,
+                !Sub "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${KmsID}",
+                "*",
+              ]
+            Condition:
+              ForAnyValue:StringEquals:
+                kms:EncryptionContextKeys: aws:backup:backup-vault
+              Bool:
+                kms:GrantIsForAWSResource: true
+              StringLike:
+                kms:ViaService: backup.*.amazonaws.com
+
+  ProdBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    DeletionPolicy: !Ref RetentionPolicy
+    DependsOn: 
+      - BackupExecutionPolicyEC2
+      - BackupExecutionPolicyEFS
+    Properties:
+      BackupPlanId: !Ref ProdBackupPlan
+      BackupSelection:
+        SelectionName: !Sub "${OrgIdentifier}-Prod-Selection"
+        IamRoleArn: !GetAtt BackupExecutionRole.Arn
+        ListOfTags:
+          - ConditionType: "STRINGEQUALS"
+            ConditionKey: !Ref TagKey
+            ConditionValue: !Ref ProdTagValue
+
+  NonProdBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    DeletionPolicy: !Ref RetentionPolicy
+    DependsOn: 
+      - BackupExecutionPolicyEC2
+      - BackupExecutionPolicyEFS
+    Properties:
+      BackupPlanId: !Ref NonProdBackupPlan
+      BackupSelection:
+        SelectionName: !Sub "${OrgIdentifier}-NonProd-Selection"
+        IamRoleArn: !GetAtt BackupExecutionRole.Arn
+        ListOfTags:
+          - ConditionType: "STRINGEQUALS"
+            ConditionKey: !Ref TagKey
+            ConditionValue: !Ref NonProdTagValue
+
+  ProdBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${OrgIdentifier}-Prod-Plan"
+        BackupPlanRule:
+          - RuleName: !Sub "${OrgIdentifier}-Prod-Rule"
+            TargetBackupVault: !Ref BackupVaultScheduled
+            ScheduleExpression: !Sub "cron(0 */${ProdRateHours} * * ? *)"
+            Lifecycle:
+              DeleteAfterDays: !Ref ProdRetentionDays
+            RecoveryPointTags:
+              BackupPlan: !Sub "${OrgIdentifier}-Prod-Plan"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 120
+            CopyActions: !If
+              - EnableBackupCopy
+              - - DestinationBackupVaultArn: !Sub "${CopyToVaultARN}"
+                  Lifecycle:
+                    DeleteAfterDays: !Ref ProdRetentionDays
+              - !Ref "AWS::NoValue"
+
+  NonProdBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${OrgIdentifier}-NonProd-Plan"
+        BackupPlanRule:
+          - RuleName: !Sub "${OrgIdentifier}-NonProd-Rule"
+            TargetBackupVault: !Ref BackupVaultScheduled
+            ScheduleExpression: !Sub "cron(0 0 */${NonProdRateDays} * ? *)"
+            Lifecycle:
+              DeleteAfterDays: !Ref NonProdRetentionDays
+            RecoveryPointTags:
+              BackupPlan: !Sub "${OrgIdentifier}-NonProd-Plan"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 120
+
+  EC2BackupSSMDocument:
+    Type: AWS::SSM::Document
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      Name: !Sub "${OrgIdentifier}-EC2-AdHocBackups"
+      DocumentType: Automation
+      Content:
+        schemaVersion: '0.3'
+        description: "Trigger AWS Backup for an EC2 instance"
+        parameters:
+          InstanceId:
+            type: "AWS::EC2::Instance::Id"
+            description: "Select the EC2 instance to backup"
+          RetentionDays:
+            type: Integer
+            description: "Number of days to retain the backup"
+        mainSteps:
+          - name: StartBackup
+            action: "aws:executeAwsApi"
+            inputs:
+              Service: backup
+              Api: StartBackupJob
+              BackupVaultName: !Ref BackupVaultAdHoc
+              IamRoleArn: !GetAtt BackupExecutionRole.Arn
+              ResourceArn: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/{{ InstanceId }}"
+              Lifecycle:
+                DeleteAfterDays: "{{ RetentionDays }}"
+

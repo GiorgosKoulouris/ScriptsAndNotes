@@ -12,7 +12,9 @@ Parameters:
   SAMLMetadataDocument:
     Type: String
     Description: "The full SAML Metadata XML document"
-
+  VaultUserArnForTrust:
+    Type: String
+    Default: arn:aws:iam::891377077020:user/TCOP-SVC-DCKR-HVLT
 Resources:
   SAMLIdentityProvider:
     Type: "AWS::IAM::SAMLProvider"
@@ -34,6 +36,10 @@ Resources:
               Condition:
                 StringEquals:
                   "SAML:aud": "https://signin.aws.amazon.com/saml"
+            - Effect: Allow
+              Principal:
+                AWS: !Ref VaultUserArnForTrust
+              Action: sts:AssumeRole
         Policies:
           - PolicyName: !Sub "${OrgIdentifier}-Administrator-Policy"
             PolicyDocument:
@@ -96,7 +102,10 @@ Resources:
               Condition:
                 StringEquals:
                   "SAML:aud": "https://signin.aws.amazon.com/saml"
-
+            - Effect: Allow
+              Principal:
+                AWS: !Ref VaultUserArnForTrust
+              Action: sts:AssumeRole
         Policies:
           - PolicyName: !Sub "${OrgIdentifier}-ReadOnly-Policy"
             PolicyDocument:
@@ -170,6 +179,28 @@ Resources:
                     - "ssm:Get*"
                     - "ssm:List*"
                   Resource: "*"
+
+  IamRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: !Sub "${OrgIdentifier}-IAM"
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Federated: !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpName}"
+              Action: sts:AssumeRoleWithSAML
+              Condition:
+                StringEquals:
+                  "SAML:aud": "https://signin.aws.amazon.com/saml"
+            - Effect: Allow
+              Principal:
+                AWS: !Ref VaultUserArnForTrust
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/IAMReadOnlyAccess
+
 Outputs:
   SAMLProviderArn:
     Description: "ARN of the created SAML Identity Provider"
@@ -180,3 +211,6 @@ Outputs:
   ReadOnlyRole:
     Description: "ARN of the ReadOnly Role"
     Value: !Ref ReadOnlyRole
+  IamRole:
+    Description: "ARN of the IAM Role"
+    Value: !Ref IamRole

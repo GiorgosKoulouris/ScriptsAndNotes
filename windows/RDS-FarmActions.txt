@@ -1,0 +1,54 @@
+To configure User Profile Disks (UPDs) in a Remote Desktop Services (RDS) Collection on Windows Server, follow these steps. This guide assumes you already have an RDS environment set up with a Session-based Desktop Deployment and a working RDS Collection.
+
+What You Need First:
+A fully configured RDS deployment (RD Connection Broker, RD Session Hosts, RD Web Access).
+A configured Session Collection (you mentioned you have this).
+A file share to store the User Profile Disks (on a file server or one of the RD Session Hosts).
+This must be an SMB share.
+Use NTFS with proper permissions.
+
+Step-by-Step: Configure User Profile Disks (UPDs)
+1. Create a Shared Folder for UPDs
+On a file server or one of the RD Session Hosts:
+Create a folder: e.g., D:\RDSProfileDisks
+Share it as: \\FileServer\RDS-UPD
+Set NTFS permissions:
+SYSTEM: Full Control
+Administrators: Full Control
+Users: No direct access needed unless for troubleshooting
+Set Share permissions:
+Everyone or Authenticated Users: Full Control
+
+2. Enable User Profile Disks in the RDS Collection
+On your RD Connection Broker server:
+Open Server Manager
+Go to Remote Desktop Services > Collections
+Select your existing collection
+In the Properties pane (bottom right), click Tasks > Edit Properties
+Go to User Profile Disks
+Check Enable User Profile Disks
+In the location field, type the UNC path of your UPD share, e.g.:
+\\FileServer\RDS-UPD
+Set the maximum size for the profile disk (e.g., 20 GB)
+(Optional) Choose what gets stored in the profile disk (entire profile or selected folders)
+Click Apply and OK
+
+3. Verify and Test
+Have users log in to test session hosts in the collection.
+After first login, a .vhdx file will be created in the share for each user, named like:
+UVHD-SID.vhdx
+
+
+(The SID is the user’s security identifier.)
+Check that user profiles are correctly loading from the UPD.
+
+Optional: GPO and Roaming Profile Considerations
+
+Do not configure roaming profiles or folder redirection when using UPDs unless absolutely necessary.
+If you previously had roaming profiles set, clean up those settings to avoid conflicts.
+
+Best Practices
+Use a dedicated file server for UPDs if possible.
+Ensure robust backups of the UPD share.
+Monitor disk space usage, especially in high-user environments.
+Use antivirus exclusions on the UPD folder to avoid lock or corruption.
