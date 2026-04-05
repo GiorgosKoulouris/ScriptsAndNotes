@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Conditional creation of managed prefix lists
+
+Parameters:
+  OrgIdentifier:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /org/account-name
+    Description: Identifier used for naming resources. Defaults to SSM parameter
+
+  RetentionPolicy:
+    Type: String
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
+
+  CreatePrivateRangeList:
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+    Description: Whether to create the private range prefix list
+
+  CreateCloudflareList:
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+    Description: Whether to create the cloudflare prefix list
+
+Conditions:
+  CreatePrivatePL: !Equals [!Ref CreatePrivateRangeList, true]
+  CreateCloudflarePL: !Equals [!Ref CreateCloudflareList, true]
+
+Resources:
+
+  PrivateRangesList:
+    Type: AWS::EC2::PrefixList
+    DeletionPolicy: !Ref RetentionPolicy
+    Condition: CreatePrivatePL
+    Properties:
+      PrefixListName: !Sub "${OrgIdentifier}-Private-Ranges"
+      AddressFamily: IPv4
+      MaxEntries: 3
+      Entries:
+        - Cidr: 10.0.0.0/8
+        - Cidr: 192.168.0.0/16
+        - Cidr: 172.16.0.0/12
+
+  CloudflareRangesList:
+    Type: AWS::EC2::PrefixList
+    DeletionPolicy: !Ref RetentionPolicy
+    Condition: CreateCloudflarePL
+    Properties:
+      PrefixListName: !Sub "${OrgIdentifier}-Cloudlare-Ranges"
+      AddressFamily: IPv4
+      MaxEntries: 15
+      Entries:
+        - Cidr: 173.245.48.0/20
+        - Cidr: 103.21.244.0/22
+        - Cidr: 103.22.200.0/22
+        - Cidr: 103.31.4.0/22
+        - Cidr: 141.101.64.0/18
+        - Cidr: 108.162.192.0/18
+        - Cidr: 190.93.240.0/20
+        - Cidr: 188.114.96.0/20
+        - Cidr: 197.234.240.0/22
+        - Cidr: 198.41.128.0/17
+        - Cidr: 162.158.0.0/15
+        - Cidr: 104.16.0.0/13
+        - Cidr: 104.24.0.0/14
+        - Cidr: 172.64.0.0/13
+        - Cidr: 131.0.72.0/22

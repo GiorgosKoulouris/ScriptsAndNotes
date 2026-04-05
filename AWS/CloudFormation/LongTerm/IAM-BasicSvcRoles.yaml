@@ -83,6 +83,21 @@ Resources:
               AWS: arn:aws:iam::891377077020:user/TCOP-SVC-DCKR-STUT
             Action: sts:AssumeRole
       ManagedPolicyArns:
-              - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
-              - arn:aws:iam::aws:policy/AmazonVPCReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonVPCReadOnlyAccess
 
+  CloudOpsRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-CloudOpsRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref TcopCloudOpsUserARN
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+                

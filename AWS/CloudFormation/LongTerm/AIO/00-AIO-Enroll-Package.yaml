@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: All-In-One resource provisioning to enroll to TCOP tools
+Parameters:
+  AccountIdentifier:
+    Type: String
+    Default: SsmParameter
+    Description: Choose 'SsmParameter' to use SSM or enter an account name directly
+  RetentionPolicy:
+    Type: String
+    AllowedValues:
+    - Delete
+    - Retain
+    Default: Delete
+    Description: Retention policy for stack resources
+  SAMLMetadataDocument:
+    Type: String
+    Description: The full SAML Metadata XML document
+  SAMLMetadataDocumentKeycloak:
+    Type: String
+    Description: The full SAML Metadata XML document for Keycloak
+  BackupTagKey:
+    Type: String
+    Description: 'Tag key to filter resources for backups. Tag values: prd or nprd'
+    Default: backup_plan
+  BackupProdRateHours:
+    Type: Number
+    Description: Backup prd resources every X hours
+    MinValue: 1
+    MaxValue: 24
+    Default: 4
+  BackupRetentionDays:
+    Type: Number
+    Description: Retention for backups in days
+    MinValue: 1
+    MaxValue: 365
+    Default: 7
+  BackupNonProdRateDays:
+    Type: Number
+    Description: Backup prd resources every X days
+    MinValue: 1
+    MaxValue: 7
+    Default: 2
+Resources:
+  ResolveAccountIdentifier:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.eu-central-1.amazonaws.com/tcop-mgmt-cloudformation-stacks/ee1990eeb00fe58751d9b1f696840606.template
+      Parameters:
+        AccountIdentifier:
+          Ref: AccountIdentifier
+  BasicSvcRoles:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.eu-central-1.amazonaws.com/tcop-mgmt-cloudformation-stacks/8e0ac496055b8d884c55e311a7c2a81c.template
+      Parameters:
+        OrgIdentifier:
+          Fn::GetAtt:
+          - ResolveAccountIdentifier
+          - Outputs.ResolvedOrgIdentifier
+        RetentionPolicy:
+          Ref: RetentionPolicy
+  SamlFederation:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.eu-central-1.amazonaws.com/tcop-mgmt-cloudformation-stacks/10cc03a63ced10b464adc933c762765b.template
+      Parameters:
+        OrgIdentifier:
+          Fn::GetAtt:
+          - ResolveAccountIdentifier
+          - Outputs.ResolvedOrgIdentifier
+        RetentionPolicy:
+          Ref: RetentionPolicy
+        SAMLMetadataDocument:
+          Ref: SAMLMetadataDocument
+        SAMLMetadataDocumentKeycloak:
+          Ref: SAMLMetadataDocumentKeycloak
+  BackupVaultAndPlans:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BasicSvcRoles
+    Properties:
+      TemplateURL: https://s3.eu-central-1.amazonaws.com/tcop-mgmt-cloudformation-stacks/47ed77f8e5e58f69e961f928631a9b1d.template
+      Parameters:
+        OrgIdentifier:
+          Fn::GetAtt:
+          - ResolveAccountIdentifier
+          - Outputs.ResolvedOrgIdentifier
+        RetentionPolicy:
+          Ref: RetentionPolicy
+        TagKey:
+          Ref: BackupTagKey
+        ProdRateHours:
+          Ref: BackupProdRateHours
+        NonProdRateDays:
+          Ref: BackupNonProdRateDays
+        ProdRetentionDays:
+          Ref: BackupRetentionDays
+        NonProdRetentionDays:
+          Ref: BackupRetentionDays

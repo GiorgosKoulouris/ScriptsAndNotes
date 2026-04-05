@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "All-In-One resource provisioning to enroll to TCOP tools"
+
+Parameters:
+  # Global
+  AccountIdentifier:
+    Type: String
+    Default: SsmParameter
+    Description: "Choose 'SsmParameter' to use SSM or enter an account name directly"
+  RetentionPolicy:
+    Type: String
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
+
+  # Federation
+  SAMLMetadataDocument:
+    Type: String
+    Description: "The full SAML Metadata XML document"
+  SAMLMetadataDocumentKeycloak:
+    Type: String
+    Description: "The full SAML Metadata XML document for Keycloak"
+
+# Backup Vaults and Plans
+  BackupTagKey:
+    Type: String
+    Description: "Tag key to filter resources for backups. Tag values: prd or nprd"
+    Default: backup_plan
+  BackupProdRateHours:
+    Type: Number
+    Description: "Backup prd resources every X hours"
+    MinValue: 1
+    MaxValue: 24
+    Default: 4
+  BackupRetentionDays:
+    Type: Number
+    Description: "Retention for backups in days"
+    MinValue: 1
+    MaxValue: 365
+    Default: 7
+  BackupNonProdRateDays:
+    Type: Number
+    Description: "Backup prd resources every X days"
+    MinValue: 1
+    MaxValue: 7
+    Default: 2 
+
+#  ============ Resources ==================
+Resources:
+  ResolveAccountIdentifier:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 01-UTIL-ResolveOrgIdentifier.yaml
+      Parameters:
+        AccountIdentifier: !Ref AccountIdentifier
+
+  BasicSvcRoles:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 02-IAM-BasicSvcRoles.yaml
+      Parameters:
+        OrgIdentifier: !GetAtt ResolveAccountIdentifier.Outputs.ResolvedOrgIdentifier
+        RetentionPolicy: !Ref RetentionPolicy
+
+  SamlFederation:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 02-IAM-SamlFederation.yaml
+      Parameters:
+        OrgIdentifier: !GetAtt ResolveAccountIdentifier.Outputs.ResolvedOrgIdentifier
+        RetentionPolicy: !Ref RetentionPolicy
+        SAMLMetadataDocument: !Ref SAMLMetadataDocument
+        SAMLMetadataDocumentKeycloak: !Ref SAMLMetadataDocumentKeycloak
+
+  BackupVaultAndPlans:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BasicSvcRoles
+    Properties:
+      TemplateURL: 03-Backups-VaultsAndPlans.yaml
+      Parameters:
+        OrgIdentifier: !GetAtt ResolveAccountIdentifier.Outputs.ResolvedOrgIdentifier
+        RetentionPolicy: !Ref RetentionPolicy
+        TagKey: !Ref BackupTagKey
+        ProdRateHours: !Ref BackupProdRateHours
+        NonProdRateDays: !Ref BackupNonProdRateDays
+        ProdRetentionDays: !Ref BackupRetentionDays
+        NonProdRetentionDays: !Ref BackupRetentionDays

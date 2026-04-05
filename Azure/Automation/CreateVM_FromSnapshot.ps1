@@ -8,52 +8,22 @@
 # Unless changed, the new OS disk is StandardSSD_LRS
 # 
 
-$automationAccResourceGroupName = "TSBR-Utilities"
-$automationAccount = "TSBR-Automation"
-$UAMI = "TSBR-Automation-Mngd-identity"
-
 $subscriptionID = 'XXXX-XXXX'
 $location = "northeurope"
-$vmRgName = "TSBR-VMs"
-$newVmName = "TSBRDAWS00"
 $vmSize = "Standard_E2_v4"
 $snapshotRgName = $vmRgName
+
+$newVmName = "TSBRDAWS00"
+$vmRgName = "TSBR-VMs"
+$RestorePointCollection = "$newVmName-Archive"
 $vnetRgName = "TSBR-Infrastructure"
-$vnetName = "TSBR-VNET"
+$VnetName = "TSBR-VNET"
 $subnetName = "TSBR-Private-Subnet"
-$privateIP = "10.120.10.5"
+$PrivateIP = "10.120.10.5"
+$CreateSpot = $true
 
-# Ensures you do not inherit an AzContext in your runbook
-$null = Disable-AzContextAutosave -Scope Process
-
-# Connect using a Managed Service Identity
-try {
-    $AzureConnection = (Connect-AzAccount -Identity).context
-}
-catch {
-    Write-Output "There is no system-assigned user identity. Aborting."
-    exit
-}
-
-$AzureContext = Set-AzContext -SubscriptionName $AzureConnection.Subscription -DefaultProfile $AzureConnection
-
-Write-Output "Using user-assigned managed identity"
-
-# Connects using the Managed Service Identity of the named user-assigned managed identity
-$identity = Get-AzUserAssignedIdentity -ResourceGroupName $automationAccResourceGroupName -Name $UAMI -DefaultProfile $AzureContext
-
-# validates assignment only, not perms
-$AzAutomationAccount = Get-AzAutomationAccount -ResourceGroupName $automationAccResourceGroupName -Name $automationAccount -DefaultProfile $AzureContext
-if ($AzAutomationAccount.Identity.UserAssignedIdentities.Values.PrincipalId.Contains($identity.PrincipalId)) {
-    $AzureConnection = (Connect-AzAccount -Identity -AccountId $identity.ClientId).context
-
-    # set and store context
-    $AzureContext = Set-AzContext -SubscriptionName $AzureConnection.Subscription -DefaultProfile $AzureConnection
-}
-else {
-    Write-Output "Invalid or unassigned user-assigned managed identity"
-    exit
-}
+# Connect to Azure (Automation Runbook will use Managed Identity or service principal)
+Connect-AzAccount -Identity
 
 $latestSnapshots = $snapshots = Get-AzSnapshot -ResourceGroup $snapshotRgName | Where-Object {$_.tags['SnapState'] -eq "latest" -and $_.Name -match $newVmName}
 $latestSnapCount = ($latestSnapshots | Measure-Object).count
@@ -111,7 +81,7 @@ try {
     $vm = New-AzVMConfig -VMName $newVmName -VMSize $vmSize -Priority "Spot" -MaxPrice -1 -EvictionPolicy Deallocate -SecurityType $securityType
     $vm = Set-AzVMOSDisk -VM $vm -ManagedDiskId $osDisk.Id -CreateOption Attach -Windows
     $vm = Add-AzVMNetworkInterface -VM $vm -Id $nic.Id
-    $vm = Set-AzVMBootDiagnostic -VM $vm -Disable
+    $vm = Set-AzVMBootDiagnostic -VM $vm -Enable
 } catch {
     Write-Error "Could not create the VM configuration"
     exit 1

@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM Role for SELF_MANAGED CloudFormation StackSet
+  This role will be assumed by the administrator account to deploy StackSets in this account.
+
+Parameters:
+  OrgIdentifier:
+    Type: String
+    Default: TCOP
+    Description: Identifier used for naming resources.
+  AdminAccountId:
+    Type: String
+    Description: "The AWS Account ID of the administrator account that can assume this role."
+  RetentionPolicy:
+    Type: String
+    AllowedValues: [Delete, Retain]
+    Default: Delete
+    Description: Retention policy for stack resources
+
+Conditions:
+  IsManagementAccount: 
+    !Equals [!Ref AdminAccountId, !Sub "${AWS::AccountId}"]
+  IsTargetAccount: 
+    !Not [!Equals [!Ref AdminAccountId, !Sub "${AWS::AccountId}"]]
+
+Resources:
+  StackSetAdminRole:
+    Condition: IsManagementAccount
+    Type: AWS::IAM::Role
+    Description: "Role assumed by master account for SELF_MANAGED StackSet deployments."
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-CloudFormation-OrgAdmin"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "Allow-AssumeTargetAccountRoles"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: !Sub "arn:aws:iam::*:role/${OrgIdentifier}-SVC-CloudFormation-StackExecutionRole"      
+
+  StackSetExecutionRole:
+    Condition: IsTargetAccount
+    Type: AWS::IAM::Role
+    Description: "Role assumed by child accounts for SELF_MANAGED StackSet deployments."
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-SVC-CloudFormation-StackExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AdminAccountId}:role/${OrgIdentifier}-SVC-CloudFormation-OrgAdmin"
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+

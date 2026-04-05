@@ -1,3 +1,66 @@
+<#
+.SYNOPSIS
+Restores an Azure VM from a Restore Point and optionally attaches an NSG.
+
+.DESCRIPTION
+This script restores a virtual machine from an Azure Restore Point.
+It recreates disks, network interface, and the VM configuration.
+
+The script supports:
+- Spot or standard VM creation
+- Optional NSG attachment to the NIC
+- OS and data disk restore from restore points
+
+.PARAMETER VmName
+Name of the virtual machine to create.
+
+.PARAMETER ResourceGroupName
+Resource group where the VM and disks will be created.
+
+.PARAMETER RestorePointCollection
+Name of the Restore Point Collection.
+
+.PARAMETER RestorePointName
+Name of the Restore Point to restore from.
+
+.PARAMETER VnetResourceGroup
+Resource group of the virtual network.
+
+.PARAMETER VnetName
+Name of the virtual network.
+
+.PARAMETER SubnetName
+Subnet name where the NIC will be created.
+
+.PARAMETER VmSize
+Azure VM size (e.g. Standard_D4s_v5).
+
+.PARAMETER CreateSpot
+Set to $true to create a Spot VM.
+
+.PARAMETER NsgName
+Name of the Network Security Group to attach to the NIC.
+Use 'None' to create the NIC without an NSG.
+
+.EXAMPLE
+.\CreateVM_FromRestorePoint.ps1 `
+  -VmName testvm `
+  -ResourceGroupName rg1 `
+  -RestorePointCollection rpc1 `
+  -RestorePointName rp1 `
+  -VnetResourceGroup net-rg `
+  -VnetName vnet1 `
+  -SubnetName subnet1 `
+  -VmSize Standard_D4s_v5 `
+  -CreateSpot $false `
+  -NsgName None
+
+.NOTES
+Requires: Az PowerShell module
+Authentication: Managed Identity or Service Principal
+#>
+
+
 param(
     [Parameter(Mandatory=$true)]
     [string]$VmName,
@@ -21,6 +84,9 @@ param(
     [string]$subnetName,
 
     [Parameter(Mandatory=$true)]
+    [string]$NsgName,
+
+    [Parameter(Mandatory=$true)]
     [string]$VmSize,
     
     [Parameter(Mandatory=$true)]
@@ -37,7 +103,6 @@ try {
     $location = $restorePoint.SourceMetadata.Location
     $securityType = $restorePoint.SourceMetadata.SecurityProfile.SecurityType
 
-
     $osDiskRestorePoint = $restorePoint.SourceMetadata.StorageProfile.OsDisk.DiskRestorePoint.Id
     $diskRestorePoints = @($restorePoint.SourceMetadata.StorageProfile.OsDisk)
     foreach ($datadisk in $restorePoint.sourceMetadata.storageProfile.dataDisks) {
@@ -46,7 +111,7 @@ try {
 
 } catch {
     Write-Warning "Failed to fetch restore point and disk restore points. Exiting..."
-    # exit 1
+    exit 1
 }
 
 # Create the disks
@@ -102,7 +167,7 @@ try{
     }
 } catch {
     Write-Error "Failed to create disks from Restore Point. Exiting..."
-    # exit 1
+    exit 1
 }
 
 # Create the network interface
@@ -111,11 +176,32 @@ try {
     $vnet = Get-AzVirtualNetwork -Name $VnetName -ResourceGroupName $VnetResourceGroup
     $subnet = Get-AzVirtualNetworkSubnetConfig -Name $SubnetName -VirtualNetwork $vnet
     $ipConfig = New-AzNetworkInterfaceIpConfig -Name "IPConfig1" -PrivateIpAddressVersion IPv4 -Subnet $subnet
-    $nic = New-AzNetworkInterface -Name "$VmName-NIC" -ResourceGroupName $ResourceGroupName -Location $location -IpConfiguration $ipConfig
-} catch {
-    Write-Error "Could not create NIC"
-    # exit 1
+
+    if ($NsgName -ne 'None') {
+        Write-Output "Attaching NSG '$NsgName' to NIC"
+        $nsg = Get-AzNetworkSecurityGroup -Name $NsgName -ResourceGroupName $ResourceGroupName
+
+        $nic = New-AzNetworkInterface `
+            -Name "$VmName-NIC" `
+            -ResourceGroupName $ResourceGroupName `
+            -Location $location `
+            -IpConfiguration $ipConfig `
+            -NetworkSecurityGroup $nsg
+    }
+    else {
+        Write-Output "No NSG will be attached to NIC"
+        $nic = New-AzNetworkInterface `
+            -Name "$VmName-NIC" `
+            -ResourceGroupName $ResourceGroupName `
+            -Location $location `
+            -IpConfiguration $ipConfig
+    }
 }
+catch {
+    Write-Error "Could not create NIC"
+    exit 1
+}
+
 
 # Create the VM configuration
 try {
@@ -142,7 +228,7 @@ try {
     $vm = Set-AzVMBootDiagnostic -VM $vm -Enable
 } catch {
     Write-Error "Could not create the VM configuration"
-    # exit 1
+    exit 1
 }
 
 try {
@@ -150,5 +236,5 @@ try {
     New-AzVM -VM $vm -ResourceGroupName $ResourceGroupName -Location $location
 } catch {
     Write-Error "Could not create VM $VmName. Exiting..."
-    # exit 1
+    exit 1
 }

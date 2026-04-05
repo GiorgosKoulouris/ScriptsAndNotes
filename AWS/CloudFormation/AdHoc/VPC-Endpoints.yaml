@@ -1,0 +1,52 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation stack to dynamically create SES SMTP Interface VPC Endpoints in multiple VPCs/AZs.
+
+Parameters:
+  Create:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: "Set to true to create the endpoints, false to skip."
+  ServiceName:
+    Type: String
+    Default: "com.amazonaws.eu-central-1.email-smtp"
+    Description: "Service name of the endpoint"
+  ServiceNameShortName:
+    Type: String
+    Default: "SMTP"
+    Description: "Service short name. Will be used in the naming"
+Conditions:
+  CreateEndpoint: !Equals [ !Ref Create, "true" ]
+
+# --- Define all endpoints here as YAML objects ---
+Mappings:
+  VpcEndpoints:
+    Endpoint1:
+      VpcId: vpc-049b61c6da89fc3d8
+      NamePrefix: ADFL-PROD
+      Subnets: 
+        - subnet-0b60819fd2a237916
+      SecurityGroups:
+        - sg-00a1595ea3c308256
+      PrivateDnsEnabled: true
+
+
+Resources:
+  VPCEndpoint1:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateEndpoint
+    Properties:
+      VpcId: !FindInMap [VpcEndpoints, Endpoint1, VpcId]
+      SubnetIds: !FindInMap [VpcEndpoints, Endpoint1, Subnets]
+      SecurityGroupIds: !FindInMap [VpcEndpoints, Endpoint1, SecurityGroups]
+      ServiceName: !Ref ServiceName
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: !FindInMap [VpcEndpoints, Endpoint1, PrivateDnsEnabled]
+      Tags:
+        - Key: Name
+          Value: !Sub
+            - "${Prefix}-${ServiceNameShortName}-EP"
+            - Prefix: !FindInMap [VpcEndpoints, Endpoint1, NamePrefix]

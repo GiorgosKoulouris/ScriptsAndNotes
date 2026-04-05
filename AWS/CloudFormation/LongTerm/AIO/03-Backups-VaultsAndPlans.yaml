@@ -3,13 +3,13 @@ Description: CloudFormation stack for creating AWS backups, with backup vault an
 
 Parameters:
   OrgIdentifier:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /org/account-name
-    Description: Identifier used for naming resources. Defaults to SSM parameter
+    Type: String
+    Default: CUST-ENV
+    Description: Identifier used for naming resources.
 
   TagKey:
     Type: String
-    Description: Tag that will be used for instance filtering
+    Description: Tag that will be used for resource filtering
     Default: backup_plan
 
   ProdTagValue:
@@ -89,23 +89,6 @@ Resources:
     Properties:
       BackupVaultName: !Sub "${OrgIdentifier}-AdHoc-Vault"
 
-  BackupExecutionRole:
-    Type: AWS::IAM::Role
-    DeletionPolicy: !Ref RetentionPolicy
-    Properties:
-      RoleName: !Sub "${OrgIdentifier}-SVC-AwsBackup"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: 
-                - backup.amazonaws.com
-                - ssm.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
-
   BackupExecutionCopyPolicy:
     Type: AWS::IAM::Policy
     DeletionPolicy: !Ref RetentionPolicy
@@ -113,7 +96,7 @@ Resources:
     Properties:
       PolicyName: !Sub "${OrgIdentifier}-SVC-AwsBackupEC2-PolicyForCopy"
       Roles:
-        - !Ref BackupExecutionRole
+        - !Sub "${OrgIdentifier}-SVC-AwsBackup"
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -166,7 +149,7 @@ Resources:
       BackupPlanId: !Ref ProdBackupPlan
       BackupSelection:
         SelectionName: !Sub "${OrgIdentifier}-Prod-Selection"
-        IamRoleArn: !GetAtt BackupExecutionRole.Arn
+        IamRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${OrgIdentifier}-SVC-AwsBackup"
         ListOfTags:
           - ConditionType: "STRINGEQUALS"
             ConditionKey: !Ref TagKey
@@ -179,7 +162,7 @@ Resources:
       BackupPlanId: !Ref NonProdBackupPlan
       BackupSelection:
         SelectionName: !Sub "${OrgIdentifier}-NonProd-Selection"
-        IamRoleArn: !GetAtt BackupExecutionRole.Arn
+        IamRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${OrgIdentifier}-SVC-AwsBackup"
         ListOfTags:
           - ConditionType: "STRINGEQUALS"
             ConditionKey: !Ref TagKey
@@ -248,7 +231,7 @@ Resources:
               Service: backup
               Api: StartBackupJob
               BackupVaultName: !Ref BackupVaultAdHoc
-              IamRoleArn: !GetAtt BackupExecutionRole.Arn
+              IamRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${OrgIdentifier}-SVC-AwsBackup"
               ResourceArn: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/{{ InstanceId }}"
               Lifecycle:
                 DeleteAfterDays: "{{ RetentionDays }}"

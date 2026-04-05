@@ -3,13 +3,19 @@ Description: "SSM Automation Runbooks to modify DNS settings on EC2 instances"
 
 Parameters:
     OrgIdentifier:
+        Type: AWS::SSM::Parameter::Value<String>
+        Default: /org/account-name
+        Description: Identifier used for naming resources. Defaults to SSM parameter
+    RetentionPolicy:
         Type: String
-        Description: Identifier to add as a prefix on resources
-        Default: TCOP
+        AllowedValues: [Delete, Retain]
+        Default: Delete
+        Description: Retention policy for stack resources
 
 Resources:
     LinuxSsmAutomationDocument:
         Type: AWS::SSM::Document
+        DeletionPolicy: !Ref RetentionPolicy
         Properties:
             DocumentType: Automation
             Name: !Sub "${OrgIdentifier}-EC2-ModifyLinuxDnsSettings"
@@ -581,6 +587,7 @@ Resources:
 
     WindowsSsmAutomationDocument:
         Type: AWS::SSM::Document
+        DeletionPolicy: !Ref RetentionPolicy
         Properties:
             DocumentType: Automation
             Name: !Sub "${OrgIdentifier}-EC2-ModifyWindowsDnsSettings"

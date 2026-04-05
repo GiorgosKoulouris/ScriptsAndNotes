@@ -41,7 +41,7 @@ Resources:
       EnableDnsSupport: true
       Tags:
         - Key: Name
-          Value: !Ref VpcName
+          Value: !Sub "${VpcName}-VPC"
     DeletionPolicy: !Ref RetentionPolicy
 
   InternetGateway:
@@ -84,7 +84,7 @@ Resources:
   PublicSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Public subnet SG
+      GroupDescription: !Sub "${VpcName} Public SG"
       GroupName: !Sub "${VpcName}-Public-SG"
       VpcId: !Ref VPC
       Tags:
@@ -95,7 +95,7 @@ Resources:
   PrivateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Private subnet SG
+      GroupDescription: !Sub "${VpcName} Private SG"
       GroupName: !Sub "${VpcName}-Private-SG"
       VpcId: !Ref VPC
       Tags:
@@ -121,22 +121,35 @@ Resources:
       Description: From Public
     DeletionPolicy: !Ref RetentionPolicy
 
-  PublicSGEgressRule:
+  PublicSGEgressToPublic:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
       GroupId: !Ref PublicSecurityGroup
       IpProtocol: -1
-      CidrIp: 0.0.0.0/0
-      Description: Allow all
+      DestinationSecurityGroupId: !Ref PublicSecurityGroup
+      Description: To Public
     DeletionPolicy: !Ref RetentionPolicy
 
-  PrivateSGEgressRule:
+  PublicSGEgressHttpToInternet:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
-      GroupId: !Ref PrivateSecurityGroup
-      IpProtocol: -1
+      GroupId: !Ref PublicSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
       CidrIp: 0.0.0.0/0
-      Description: Allow all
+      Description: HTTP to Internet
+    DeletionPolicy: !Ref RetentionPolicy
+
+  PublicSGEgressHttpsToInternet:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PublicSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+      Description: HTTPs to Internet
     DeletionPolicy: !Ref RetentionPolicy
 
   PrivateSGIngressFromPrivate:
@@ -146,6 +159,46 @@ Resources:
       IpProtocol: -1
       SourceSecurityGroupId: !Ref PrivateSecurityGroup
       Description: From Private
+    DeletionPolicy: !Ref RetentionPolicy
+
+  PrivateSGEgressToPrivate:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      IpProtocol: -1
+      DestinationSecurityGroupId: !Ref PrivateSecurityGroup
+      Description: To Private
+    DeletionPolicy: !Ref RetentionPolicy
+
+  PrivateSGEgressToPublic:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      IpProtocol: -1
+      DestinationSecurityGroupId: !Ref PublicSecurityGroup
+      Description: To Public
+    DeletionPolicy: !Ref RetentionPolicy
+
+  PrivateSGEgressHttpToInternet:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+      Description: HTTP to Internet
+    DeletionPolicy: !Ref RetentionPolicy
+
+  PrivateSGEgressHttpsToInternet:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+      Description: HTTPs to Internet
     DeletionPolicy: !Ref RetentionPolicy
 
   PublicRouteTable:
@@ -200,5 +253,5 @@ Resources:
         - !Ref PrivateRouteTable
       Tags:
         - Key: Name
-          Value: !Sub "${VpcName}-S3-Endpoint"
+          Value: !Sub "${VpcName}-S3-EP"
     DeletionPolicy: !Ref RetentionPolicy

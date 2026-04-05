@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Intermediate stack to resolve AccountIdentifier parameter"
+
+Parameters:
+  AccountIdentifier:
+    Type: String
+
+Conditions:
+  UseSSMParameter: !Equals [ !Ref AccountIdentifier, SsmParameter ]
+
+Resources:
+  DummyResource:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+Outputs:
+  ResolvedOrgIdentifier:
+    Description: "OrgIdentifier resolved to SSM or AccountIdentifier"
+    Value: !If
+      - UseSSMParameter
+      - !Sub "{{resolve:ssm:/org/account-name:1}}"
+      - !Ref AccountIdentifier
