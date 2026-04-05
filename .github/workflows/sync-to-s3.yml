@@ -8,6 +8,13 @@ on:
       - closed
     branches:
       - main
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGION: "eu-central-1"             # Public ECR must use us-east-1
+  S3_BUCKET: "tcop-prod-github-repos"    # Public ECR alias (e.g., "mycompany")
+  S3_PREFIX: "ScriptAndNotes"       # ECR repository name
+
 jobs:
   deploy:
     if: github.event.pull_request.merged == true || github.event_name == 'push'
@@ -15,15 +22,16 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ secrets.AWS_ROLE_NAME }}
+          aws-region: ${{ env.REGION }}
+
       - name: Sync Repo to S3
         run: |
-          aws s3 sync . s3://${{ secrets.S3_BUCKET }}/${{ secrets.S3_PREFIX }} \
+          aws s3 sync . s3://${{ env.S3_BUCKET }}/${{ env.S3_PREFIX }} \
             --delete \
             --exclude ".git/*" \
             --exclude ".github/*"
