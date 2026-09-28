@@ -1,0 +1,128 @@
+#!/bin/bash
+
+# OCF resource agent for a custom Master/Slave resource
+# Place this script in /usr/lib/ocf/resource.d/custom/promotable
+
+# Load OCF helper functions
+. /usr/lib/ocf/lib/heartbeat/ocf-shellfuncs
+
+RESOURCE_NAME="promotable"
+STATE_FILE="/var/run/${RESOURCE_NAME}.state"
+
+# Start function
+start() {
+    ocf_log info "Starting $RESOURCE_NAME"
+    echo "Slave" > "$STATE_FILE" && exit $OCF_SUCCESS || exit $OCF_NOT_RUNNING
+}
+
+# Stop function
+stop() {
+    ocf_log info "Stopping $RESOURCE_NAME"
+    rm -f "$STATE_FILE" && exit $OCF_SUCCESS || exit $OCF_NOT_RUNNING
+}
+
+# Monitor function
+monitor() {
+    if [[ -f "$STATE_FILE" ]]; then
+        if grep -q "Master" "$STATE_FILE"; then
+            ocf_log info "$RESOURCE_NAME is running as Master"
+            exit $OCF_RUNNING_MASTER
+        else
+            ocf_log info "$RESOURCE_NAME is running as Slave"
+            exit $OCF_SUCCESS
+        fi
+    else
+        ocf_log err "$RESOURCE_NAME is not running"
+        exit $OCF_NOT_RUNNING
+    fi
+}
+
+# Promote function
+promote() {
+    ocf_log info "Promoting $RESOURCE_NAME to Master"
+    echo "Master" > "$STATE_FILE" && exit $OCF_RUNNING_MASTER || exit $OCF_FAILED_MASTER
+}
+
+# Demote function
+demote() {
+    ocf_log info "Demoting $RESOURCE_NAME to Slave"
+    echo "Slave" > "$STATE_FILE" && exit $OCF_SUCCESS || exit $OCF_NOT_RUNNING
+}
+
+# Notify function (handles promotion/demotion events)
+notify() {
+    local action="$1"
+    local state="$2"
+    ocf_log info "Received notification: $action, state: $state"
+
+    case "$state" in
+        "promote")
+            echo "Master" > "$STATE_FILE"
+            ocf_log info "$RESOURCE_NAME promoted to Master"
+            exit $OCF_SUCCESS
+            ;;
+        "demote")
+            echo "Slave" > "$STATE_FILE"
+            ocf_log info "$RESOURCE_NAME demoted to Slave"
+            exit $OCF_SUCCESS
+            ;;
+        *)
+            ocf_log warn "Unknown notify state: $state"
+            exit $OCF_SUCCESS
+            ;;
+    esac
+}
+
+# Metadata function
+meta_data() {
+    cat <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="${RESOURCE_NAME}" version="1.0">
+    <version>1.0</version>
+    <longdesc lang="en">
+        This is a dummy OCF resource agent for a promotable resource.
+    </longdesc>
+    <shortdesc lang="en">Dummy OCF Master/Slave resource</shortdesc>
+    <parameters/>
+    <actions>
+        <action name="start" />
+        <action name="stop" />
+        <action name="monitor" />
+        <action name="promote" />
+        <action name="demote" />
+        <action name="notify" />
+        <action name="meta-data" />
+    </actions>
+</resource-agent>
+EOF
+}
+
+# Command handling
+case "$1" in
+    start)
+        start
+        ;;
+    stop) 
+        stop
+        ;;
+    monitor)
+        monitor
+        ;;
+    promote)
+        promote
+        ;;
+    demote)
+        demote
+        ;;
+    notify)
+        notify "$2" "$3"
+        ;;
+    meta-data)
+        meta_data
+        ;;
+    *)
+        ocf_log err "Usage: $0 {start|stop|monitor|promote|demote|notify|meta-data}"
+        exit $OCF_ERR_ARGS
+        ;;
+esac

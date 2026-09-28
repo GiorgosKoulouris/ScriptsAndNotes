@@ -1,0 +1,46 @@
+#!/bin/bash
+# Location: /usr/lib/ocf/resource.d/custom/test_nginx
+# OCF resource agent script for Pacemaker
+
+# Load OCF library
+. /usr/lib/ocf/lib/heartbeat/ocf-shellfuncs
+
+# Define actions
+case "$1" in
+    meta-data)
+        cat <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="aws_vip">
+    <version>1.0</version>
+    <longdesc lang="en">Manages NGINX.</longdesc>
+    <shortdesc lang="en">AWS NGINX</shortdesc>
+    <actions>
+        <action name="start" timeout="20" />
+        <action name="stop" timeout="20" />
+        <action name="monitor" timeout="10" interval="10" />
+        <action name="meta-data" timeout="5" />
+    </actions>
+</resource-agent>
+EOF
+        exit $OCF_SUCCESS
+        ;;
+    start)
+        echo "Executing start script..."
+        /usr/bin/systemctl start nginx
+        exit $OCF_SUCCESS
+        ;;
+    stop)
+        echo "Executing detach script..."
+        /usr/bin/systemctl stop nginx
+        exit $OCF_SUCCESS
+        ;;
+    monitor)
+        systemctl status nginx
+        [ $? -eq 0 ] && exit $OCF_SUCCESS || exit $OCF_NOT_RUNNING
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|monitor}"
+        exit $OCF_ERR_UNIMPLEMENTED
+        ;;
+esac

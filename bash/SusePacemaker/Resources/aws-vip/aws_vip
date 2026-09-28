@@ -1,0 +1,53 @@
+#!/bin/bash
+# Location: /scripts/pacemaker/aws_vip and soft linked to /usr/lib/ocf/resource.d/custom/aws_vip
+# OCF resource agent script for Pacemaker
+
+# Load OCF library
+. /usr/lib/ocf/lib/heartbeat/ocf-shellfuncs
+
+# Define actions
+case "$1" in
+    meta-data)
+        cat <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="aws_vip">
+    <version>1.0</version>
+    <longdesc lang="en">Manages AWS VIP - Secondary IP</longdesc>
+    <shortdesc lang="en">AWS Private VIP Resource Agent</shortdesc>
+    <parameters>
+        <parameter name="ip_address" unique="1" required="1">
+            <longdesc lang="en">The ip address to attach</longdesc>
+            <shortdesc lang="en">IP address</shortdesc>
+            <content type="string" default=""/>
+        </parameter>
+    </parameters>
+    <actions>
+        <action name="start" timeout="20" />
+        <action name="stop" timeout="20" />
+        <action name="monitor" timeout="10" interval="10" />
+        <action name="meta-data" timeout="5" />
+    </actions>
+</resource-agent>
+EOF
+        exit $OCF_SUCCESS
+        ;;
+    start)
+        echo "Executing attach script..."
+        /scripts/pacemaker/aws_vip_actions.sh --ip-address "$OCF_RESKEY_ip_address" --action "attach"
+        exit $OCF_SUCCESS
+        ;;
+    stop)
+        echo "Executing detach script..."
+        /scripts/pacemaker/aws_vip_actions.sh --ip-address "$OCF_RESKEY_ip_address" --action "detach"
+        exit $OCF_SUCCESS
+        ;;
+    monitor)
+        /scripts/pacemaker/aws_vip_actions.sh --ip-address "$OCF_RESKEY_ip_address" --action "monitor" && exit $OCF_SUCCESS || exit $OCF_ERR_GENERIC
+        ;;
+    *)
+        echo "$@" >> /scripts/pacemaker/cmd.log
+        echo "Usage: $0 {start|stop|monitor}"
+        exit $OCF_ERR_UNIMPLEMENTED
+        ;;
+esac

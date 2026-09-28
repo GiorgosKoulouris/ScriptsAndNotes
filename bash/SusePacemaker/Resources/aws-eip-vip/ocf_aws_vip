@@ -1,0 +1,52 @@
+#!/bin/bash
+# Location: /usr/lib/ocf/resource.d/custom/aws_vip
+# OCF resource agent script for Pacemaker
+
+# Load OCF library
+. /usr/lib/ocf/lib/heartbeat/ocf-shellfuncs
+
+# Define actions
+case "$1" in
+    meta-data)
+        cat <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="aws_vip">
+    <version>1.0</version>
+    <longdesc lang="en">Manages AWS Virtual IP.</longdesc>
+    <shortdesc lang="en">AWS VIP Resource Agent</shortdesc>
+    <parameters>
+        <parameter name="eni_id" unique="1" required="1">
+            <longdesc lang="en">The ENI ID to transfer</longdesc>
+            <shortdesc lang="en">ENI ID</shortdesc>
+            <content type="string" default=""/>
+        </parameter>
+    </parameters>
+    <actions>
+        <action name="start" timeout="20" />
+        <action name="stop" timeout="20" />
+        <action name="monitor" timeout="10" interval="10" />
+        <action name="meta-data" timeout="5" />
+    </actions>
+</resource-agent>
+EOF
+        exit $OCF_SUCCESS
+        ;;
+    start)
+        echo "Executing attach script..."
+        /scripts/configs/aws_vip/vip_actions.sh --eni-id "$OCF_RESKEY_eni_id" --action "attach"
+        exit $OCF_SUCCESS
+        ;;
+    stop)
+        echo "Executing detach script..."
+        /scripts/configs/aws_vip/vip_actions.sh --eni-id "$OCF_RESKEY_eni_id" --action "detach"
+        exit $OCF_SUCCESS
+        ;;
+    monitor)
+        /scripts/configs/aws_vip/vip_actions.sh --eni-id "$OCF_RESKEY_eni_id" --action "monitor" && exit $OCF_SUCCESS || exit $OCF_ERR_GENERIC
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|monitor}"
+        exit $OCF_ERR_UNIMPLEMENTED
+        ;;
+esac
