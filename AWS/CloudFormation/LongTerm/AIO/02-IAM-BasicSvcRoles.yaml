@@ -119,7 +119,6 @@ Resources:
           Principal:
             Service:
             - backup.amazonaws.com
-            - ssm.amazonaws.com
           Action: sts:AssumeRole
           Condition:
             StringEquals:

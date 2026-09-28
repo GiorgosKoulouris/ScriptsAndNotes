@@ -16,29 +16,55 @@ Resources:
     Type: AWS::IAM::User
     Properties:
       UserName: !Sub "${OrgIdentifier}-USR-${Username}"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
+      LoginProfile: !Ref AWS::NoValue  # No console access
       Policies:
-        - PolicyName: !Sub "${OrgIdentifier}-USR-${Username}-Denies"
+        - PolicyName: !Sub "${OrgIdentifier}-USR-${Username}-Policy"
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: "Deny"
                 Action:
-                  - "iam:*"
-                  - "sso:*"
-                  - "identitystore:*"
-                  - "organizations:*"
-                  - "billing:*"
-                  - "payment-method:*"
-                  - "sts:AssumeRole"
-                  - "sts:SetDefaultPolicyVersion"
-                  - "cloudformation:CreateStackSet"
-                  - "cloudformation:UpdateStackSet"
-                  - "cloudformation:DeleteStackSet"
-                  - "support:*"
-                  - "kms:CreateKey"
-                  - "kms:ScheduleKeyDeletion"
+                - "sso:*"
+                - "identitystore:*"
+                - "organizations:*"
+                - "billing:*"
+                - "payment-method:*"
+                - "sts:AssumeRole"
+                - "sts:SetDefaultPolicyVersion"
+                - "cloudformation:CreateStackSet"
+                - "cloudformation:UpdateStackSet"
+                - "cloudformation:DeleteStackSet"
+                - "support:*"
+                - "kms:CreateKey"
+                - "kms:ScheduleKeyDeletion"
                 Resource: "*"
 
-      LoginProfile: !Ref AWS::NoValue  # No console access
+              - Effect: "Allow"
+                Action:
+                - "aws-portal:View*"
+                - "account:Get*"
+                - "backup:*"
+                - "cloudtrail:Describe*"
+                - "cloudtrail:Get*"
+                - "cloudtrail:List*"
+                - "cloudwatch:*"
+                - "config:*"
+                - "iam:*"
+                - "ec2:*"
+                - "ecr:*"
+                - "ecs:*"
+                - "ecr-public:*"
+                - "eks:*"
+                - "elasticfilesystem:*"
+                - "elasticloadbalancing:*"
+                - "kms:*"
+                - "lambda:*"
+                - "logs:*"
+                - "route53:*"
+                - "route53domains:*"
+                - "route53resolver:*"
+                - "s3:*"
+                - "sqs:*"
+                - "ssm:*"
+                Resource: "*"
+

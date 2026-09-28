@@ -207,32 +207,3 @@ Resources:
               BackupPlan: !Sub "${OrgIdentifier}-NonProd-Plan"
             StartWindowMinutes: 60
             CompletionWindowMinutes: 120
-
-  EC2BackupSSMDocument:
-    Type: AWS::SSM::Document
-    DeletionPolicy: !Ref RetentionPolicy
-    Properties:
-      Name: !Sub "${OrgIdentifier}-EC2-AdHocBackups"
-      DocumentType: Automation
-      Content:
-        schemaVersion: '0.3'
-        description: "Trigger AWS Backup for an EC2 instance"
-        parameters:
-          InstanceId:
-            type: "AWS::EC2::Instance::Id"
-            description: "Select the EC2 instance to backup"
-          RetentionDays:
-            type: Integer
-            description: "Number of days to retain the backup"
-        mainSteps:
-          - name: StartBackup
-            action: "aws:executeAwsApi"
-            inputs:
-              Service: backup
-              Api: StartBackupJob
-              BackupVaultName: !Ref BackupVaultAdHoc
-              IamRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${OrgIdentifier}-SVC-AwsBackup"
-              ResourceArn: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/{{ InstanceId }}"
-              Lifecycle:
-                DeleteAfterDays: "{{ RetentionDays }}"
-

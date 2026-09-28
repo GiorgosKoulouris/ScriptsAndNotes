@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Configure visible AWS Console Regions in every account and,
+  in the Organizations administration account only, create
+  an SCP restricting AWS usage to the approved Regions.
+
+Mappings:
+
+  AccountColors:
+    '727845353620':
+      Color: 'red'
+    '339712771459':
+      Color: 'lightBlue'
+    '891377077020':
+      Color: 'purple'
+    '809311527874':
+      Color: 'pink'
+
+Parameters:
+
+  OrgAdminAccountID:
+    Type: String
+    Description: >
+      AWS Organizations management account ID. The SCP will only
+      be created when this stack is deployed in this account.
+    AllowedPattern: '^[0-9]{12}$'
+
+  OrganizationTargetId:
+    Type: String
+    Description: >
+      AWS Organizations Root, OU, or Account ID to which the SCP will be attached.
+
+  AllowedRegions:
+    Type: CommaDelimitedList
+    Default: us-east-1,eu-central-1,eu-west-1
+    Description: >
+      AWS Regions that should be visible in the AWS Console
+      and allowed by the SCP.
+
+
+Conditions:
+  IsOrgAdminAccount: !Equals
+    - !Ref AWS::AccountId
+    - !Ref OrgAdminAccountID
+
+Resources:
+
+  # This is created in every account receiving the StackSet.
+  AccountRegionVisibility:
+    Type: AWS::UXC::AccountCustomization
+    Properties:
+      VisibleRegions: !Ref AllowedRegions
+      AccountColor: !FindInMap
+        - AccountColors
+        - !Ref AWS::AccountId
+        - Color
+
+  # This is created ONLY in the Organizations management account.
+  RegionRestrictionPolicy:
+    Condition: IsOrgAdminAccount
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: DenyUnapprovedRegions
+      Description: >
+        Prevent AWS API operations outside the organization's
+        approved AWS Regions.
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds:
+        - !Ref OrganizationTargetId
+      Content:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyUnapprovedRegions
+            Effect: Deny
+            NotAction:
+              - iam:*
+              - organizations:*
+              - account:*
+              - route53:*
+              - cloudfront:*
+              - support:*
+              - billing:*
+              - sts:*
+            Resource: '*'
+            Condition:
+              StringNotEquals:
+                aws:RequestedRegion: !Ref AllowedRegions

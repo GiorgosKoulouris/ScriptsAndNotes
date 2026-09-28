@@ -11,13 +11,6 @@ Parameters:
     AllowedValues: [Delete, Retain]
     Default: Delete
     Description: Retention policy for stack resources
-  IdpName:
-    Type: String
-    Default: TCOP-Federation
-    Description: "The name of the SAML Identity Provider"
-  SAMLMetadataDocument:
-    Type: String
-    Description: "The full SAML Metadata XML document"
   IdpNameKeycloak:
     Type: String
     Default: TCOP-Keycloak
@@ -30,13 +23,6 @@ Parameters:
     Default: arn:aws:iam::891377077020:user/TCOP-SVC-DCKR-HVLT
     
 Resources:
-  SAMLIdentityProvider:
-    Type: "AWS::IAM::SAMLProvider"
-    DeletionPolicy: !Ref RetentionPolicy
-    Properties:
-      Name: !Ref IdpName
-      SamlMetadataDocument: !Ref SAMLMetadataDocument
-
   SAMLIdentityProviderKeycloak:
     Type: "AWS::IAM::SAMLProvider"
     DeletionPolicy: !Ref RetentionPolicy
@@ -55,7 +41,6 @@ Resources:
         - Effect: Allow
           Principal:
             Federated: 
-              - !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpName}"
               - !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpNameKeycloak}"
           Action: sts:AssumeRoleWithSAML
           Condition:
@@ -72,6 +57,8 @@ Resources:
           Principal:
             AWS: !Ref VaultUserArnForTrust
           Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
       Policies:
       - PolicyName: !Sub "${OrgIdentifier}-Administrator-Policy"
         PolicyDocument:
@@ -86,55 +73,19 @@ Resources:
             - "payment-method:*"
             - "sts:AssumeRole"
             - "sts:SetDefaultPolicyVersion"
-            - "cloudformation:CreateStackSet"
-            - "cloudformation:UpdateStackSet"
-            - "cloudformation:DeleteStackSet"
-            - "support:*"
-            - "kms:CreateKey"
-            - "kms:ScheduleKeyDeletion"
             Resource: "*"
 
-          - Effect: "Allow"
-            Action:
-            - "aws-portal:View*"
-            - "account:Get*"
-            - "iam:*"
-            - "backup:*"
-            - "cloudtrail:Describe*"
-            - "cloudtrail:Get*"
-            - "cloudtrail:List*"
-            - "cloudwatch:*"
-            - "config:*"
-            - "ec2:*"
-            - "ecr:*"
-            - "ecs:*"
-            - "ecr-public:*"
-            - "eks:*"
-            - "elasticfilesystem:*"
-            - "elasticloadbalancing:*"
-            - "kms:*"
-            - "lambda:*"
-            - "logs:*"
-            - "route53:*"
-            - "route53domains:*"
-            - "route53resolver:*"
-            - "s3:*"
-            - "sqs:*"
-            - "ssm:*"
-            Resource: "*"
-
-  ReadOnlyRole:
+  PowerUserRole:
     Type: AWS::IAM::Role
     DeletionPolicy: !Ref RetentionPolicy
     Properties:
-      RoleName: !Sub "${OrgIdentifier}-ReadOnly"
+      RoleName: !Sub "${OrgIdentifier}-PowerUser"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
         - Effect: Allow
           Principal:
-            Federated: 
-              - !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpName}"
+            Federated:
               - !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpNameKeycloak}"
           Action: sts:AssumeRoleWithSAML
           Condition:
@@ -151,6 +102,53 @@ Resources:
           Principal:
             AWS: !Ref VaultUserArnForTrust
           Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+      Policies:
+      - PolicyName: !Sub "${OrgIdentifier}-PowerUser-Policy"
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: "Deny"
+            Action:
+            - "sso:*"
+            - "identitystore:*"
+            - "organizations:*"
+            - "billing:*"
+            - "payment-method:*"
+            - "sts:AssumeRole"
+            - "sts:SetDefaultPolicyVersion"
+            Resource: "*"
+
+  ReadOnlyRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: !Ref RetentionPolicy
+    Properties:
+      RoleName: !Sub "${OrgIdentifier}-ReadOnly"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Federated: 
+              - !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpNameKeycloak}"
+          Action: sts:AssumeRoleWithSAML
+          Condition:
+            StringEquals:
+              "SAML:aud": "https://signin.aws.amazon.com/saml"
+        - Effect: Allow
+          Principal:
+            Federated: !Sub "arn:aws:iam::${AWS::AccountId}:saml-provider/${IdpNameKeycloak}"
+          Action: sts:TagSession
+          Condition:
+            StringLike:
+              aws:RequestTag/Email: "*"
+        - Effect: Allow
+          Principal:
+            AWS: !Ref VaultUserArnForTrust
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess"
       Policies:
       - PolicyName: !Sub "${OrgIdentifier}-ReadOnly-Policy"
         PolicyDocument:
@@ -170,70 +168,13 @@ Resources:
             - "kms:ScheduleKeyDeletion"
             Resource: "*"
 
-          - Effect: "Allow"
-            Action:
-            - "aws-portal:View*"
-            - "account:Get*"
-            - "cloudtrail:LookupEvents"
-            - "cloudformation:Describe*"
-            - "cloudformation:Get*"
-            - "cloudformation:List*"
-            - "cloudwatch:Describe*"
-            - "cloudwatch:Get*"
-            - "cloudwatch:List*"
-            - "config:Describe*"
-            - "config:Get*"
-            - "config:List*"
-            - "ec2:Describe*"
-            - "ec2:List*"
-            - "ec2:Get*"
-            - "ecr:Get*"
-            - "ecr:List*"
-            - "ecr:Describe*"
-            - "ecs:Get*"
-            - "ecs:List*"
-            - "ecs:Describe*"
-            - "ecr-public:Get*"
-            - "ecr-public:List*"
-            - "ecr-public:Describe*"
-            - "eks:Describe*"
-            - "eks:List*"
-            - "elasticfilesystem:Describe*"
-            - "elasticloadbalancing:Describe*"
-            - "iam:Get*"
-            - "iam:List*"
-            - "iam:Describe*"
-            - "kms:Describe*"
-            - "kms:Get*"
-            - "lambda:Get*"
-            - "lambda:List*"
-            - "logs:Describe*"
-            - "logs:Get*"
-            - "logs:List*"
-            - "route53:Get*"
-            - "route53:List*"
-            - "route53domains:List*"
-            - "route53domains:Get*"
-            - "route53resolver:Get*"
-            - "route53resolver:List*"
-            - "s3:Get*"
-            - "s3:List*"
-            - "sns:Get*"
-            - "sns:List*"
-            - "sqs:Get*"
-            - "sqs:List*"
-            - "ssm:Describe*"
-            - "ssm:Get*"
-            - "ssm:List*"
-            Resource: "*"
-
 Outputs:
-  SAMLProviderArn:
-    Description: "ARN of the created SAML Identity Provider"
-    Value: !Ref SAMLIdentityProvider
   AdminRole:
     Description: "ARN of the Admin Role"
     Value: !Ref AdminRole
   ReadOnlyRole:
     Description: "ARN of the ReadOnly Role"
     Value: !Ref ReadOnlyRole
+  PowerUserRole:
+    Description: "ARN of the PowerUser Role"
+    Value: !Ref PowerUserRole
