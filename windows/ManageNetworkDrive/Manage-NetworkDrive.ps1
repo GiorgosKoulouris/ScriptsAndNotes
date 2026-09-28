@@ -124,11 +124,11 @@ function Unmount-NetworkDrive {
 
 # Run selected operations
 if ($CreateCredentials) {
-    Create-CredentialCmdKey -Target $NetworkPath
+    Create-CredentialCmdKey -TargetUNC $NetworkPath
 }
 
 if ($DeleteCredentials) {
-    Delete-CredentialCmdKey -Target $NetworkPath
+    Delete-CredentialCmdKey -TargetUNC $NetworkPath
 }
 
 if ($Mount) {
